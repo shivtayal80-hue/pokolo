@@ -12,13 +12,19 @@ const storedUrl = typeof window !== 'undefined' ? localStorage.getItem('fintrack
 const storedKey = typeof window !== 'undefined' ? localStorage.getItem('fintrack_supabase_key') : '';
 
 // Defaults provided for immediate server integration
-const DEFAULT_URL = 'https://qotllqowidahiuuvcsoa.supabase.co';
-const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvdGxscW93aWRhaGl1dXZjc29hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwNjY0NTMsImV4cCI6MjA4MTY0MjQ1M30.8qlA5D9utf75GeUsfljFj_u_yjeI2OfBep-YmeBsCzI';
+// We trim them to avoid copy-paste whitespace issues
+const DEFAULT_URL = 'https://qotllqowidahiuuvcsoa.supabase.co'.trim();
+const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvdGxscW93aWRhaGl1dXZjc29hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwNjY0NTMsImV4cCI6MjA4MTY0MjQ1M30.8qlA5D9utf75GeUsfljFj_u_yjeI2OfBep-YmeBsCzI'.trim();
 
-const supabaseUrl = getEnv('VITE_SUPABASE_URL') || storedUrl || DEFAULT_URL;
-const supabaseKey = getEnv('VITE_SUPABASE_ANON_KEY') || storedKey || DEFAULT_KEY;
+// Logic: Environment -> LocalStorage -> Default
+// If LocalStorage is set to 'undefined' string by mistake, ignore it
+const validStoredUrl = storedUrl && storedUrl !== 'undefined' && storedUrl !== 'null' ? storedUrl : '';
+const validStoredKey = storedKey && storedKey !== 'undefined' && storedKey !== 'null' ? storedKey : '';
 
-// Check if configured (Keys must exist and not be placeholders)
+const supabaseUrl = getEnv('VITE_SUPABASE_URL') || validStoredUrl || DEFAULT_URL;
+const supabaseKey = getEnv('VITE_SUPABASE_ANON_KEY') || validStoredKey || DEFAULT_KEY;
+
+// Check if configured (Keys must exist and be valid)
 export const isSupabaseConfigured = 
   supabaseUrl && 
   supabaseKey && 

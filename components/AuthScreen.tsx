@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { Box, Lock, User as UserIcon, ArrowRight, Sparkles, AlertTriangle, CloudOff, Download, Upload, RefreshCw, Database, CheckCircle, Settings } from 'lucide-react';
+import React, { useState } from 'react';
+import { Box, Lock, User as UserIcon, ArrowRight, Sparkles, AlertTriangle, CheckCircle, Settings, Globe } from 'lucide-react';
 import { supabase, isSupabaseConfigured, configureSupabase, disconnectSupabase } from '../lib/supabase';
 import { dbService } from '../services/mockDb';
 import { User } from '../types';
@@ -15,14 +15,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showBackup, setShowBackup] = useState(false);
   const [showServerConfig, setShowServerConfig] = useState(false);
   
   // Server Config State
   const [serverUrl, setServerUrl] = useState('');
   const [serverKey, setServerKey] = useState('');
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,6 +42,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
           setIsLogin(true);
         }
       } else {
+        // Fallback for local testing if server disconnects (unlikely in prod)
         if (isLogin) {
           const user = await dbService.login(cleanEmail, cleanPassword);
           onLogin(user);
@@ -58,40 +56,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleExport = () => {
-    const data = dbService.exportDatabase();
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data));
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", `fintrack_backup_${new Date().toISOString().split('T')[0]}.json`);
-    document.body.appendChild(downloadAnchorNode);
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
-    setMessage("Backup file downloaded! Send this file to your other device.");
-  };
-
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const json = JSON.parse(event.target?.result as string);
-        const success = dbService.importDatabase(json);
-        if (success) {
-          setMessage("Data imported successfully! Page will reload...");
-          setTimeout(() => window.location.reload(), 1500);
-        } else {
-          setError("Invalid backup file.");
-        }
-      } catch (err) {
-        setError("Failed to parse backup file.");
-      }
-    };
-    reader.readAsText(file);
   };
 
   const handleConnectServer = (e: React.FormEvent) => {
@@ -111,156 +75,88 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
       
       <div className="relative z-10 w-full max-w-md">
         
-        {/* Connection Status / Server Banner */}
-        <div className={`mb-6 border rounded-2xl p-4 flex items-center justify-between shadow-sm animate-in fade-in slide-in-from-top-4 ${isSupabaseConfigured ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-gray-200'}`}>
-           <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg shrink-0 ${isSupabaseConfigured ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
-                {isSupabaseConfigured ? <CheckCircle className="w-5 h-5" /> : <Database className="w-5 h-5" />}
-              </div>
-              <div>
-                <h3 className={`text-sm font-bold ${isSupabaseConfigured ? 'text-emerald-900' : 'text-gray-900'}`}>
-                  {isSupabaseConfigured ? 'Cloud Connected' : 'Local Mode'}
-                </h3>
-                <p className="text-xs text-gray-500 leading-none mt-1">
-                  {isSupabaseConfigured ? 'Syncing active' : 'Data on this device only'}
-                </p>
-              </div>
-           </div>
-           <button 
-             onClick={() => setShowServerConfig(!showServerConfig)}
-             className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-900 transition-colors"
+        {/* Connection Status Indicator */}
+        <div className="flex justify-center mb-6 animate-in fade-in slide-in-from-top-4">
+           <div className={`
+             inline-flex items-center gap-2 px-4 py-2 rounded-full shadow-sm text-xs font-medium border cursor-pointer transition-all
+             ${isSupabaseConfigured ? 'bg-white text-emerald-700 border-emerald-100 hover:border-emerald-200' : 'bg-white text-gray-500 border-gray-200'}
+           `}
+           onClick={() => setShowServerConfig(!showServerConfig)}
            >
-             <Settings size={18} />
-           </button>
+              {isSupabaseConfigured ? (
+                <>
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  Connected to Cloud
+                </>
+              ) : (
+                <>
+                  <Globe size={12} />
+                  Offline Mode
+                </>
+              )}
+           </div>
         </div>
 
-        {/* Server Config Modal */}
+        {/* Server Config Modal (Hidden by default) */}
         {showServerConfig && (
            <div className="mb-6 bg-white border border-gray-200 rounded-2xl p-6 shadow-xl animate-in zoom-in-95 duration-200">
              <div className="flex justify-between items-center mb-4">
-               <h3 className="text-lg font-bold text-gray-900">Server Connection</h3>
+               <h3 className="text-lg font-bold text-gray-900">Server Configuration</h3>
                {isSupabaseConfigured && (
                  <button onClick={disconnectSupabase} className="text-xs text-red-600 hover:underline">
-                   Reset to Default
+                   Reset Connection
                  </button>
                )}
              </div>
              
-             {!isSupabaseConfigured ? (
-               <form onSubmit={handleConnectServer} className="space-y-4">
-                 <div className="space-y-3">
-                   <div>
-                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Project URL</label>
-                     <input 
-                       required
-                       type="url"
-                       placeholder="https://your-project.supabase.co"
-                       className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-900"
-                       value={serverUrl}
-                       onChange={e => setServerUrl(e.target.value)}
-                     />
-                   </div>
-                   <div>
-                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Anon Public Key</label>
-                     <input 
-                       required
-                       type="password"
-                       placeholder="eyJh..."
-                       className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-900"
-                       value={serverKey}
-                       onChange={e => setServerKey(e.target.value)}
-                     />
-                   </div>
+             <form onSubmit={handleConnectServer} className="space-y-4">
+               <div className="space-y-3">
+                 <div>
+                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Project URL</label>
+                   <input 
+                     required
+                     type="url"
+                     placeholder="https://your-project.supabase.co"
+                     className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-900"
+                     value={serverUrl}
+                     onChange={e => setServerUrl(e.target.value)}
+                   />
                  </div>
-                 <button 
-                   type="submit"
-                   className="w-full bg-gray-900 text-white py-2.5 rounded-xl font-bold text-sm shadow-lg hover:bg-black transition-all"
-                 >
-                   Connect & Reload
-                 </button>
-                 <p className="text-[10px] text-gray-400 text-center leading-relaxed">
-                   Enter credentials from your Supabase dashboard.<br/>(Settings &rarr; API)
-                 </p>
-               </form>
-             ) : (
-               <div className="text-center py-4">
-                 <p className="text-sm text-gray-600">
-                   Your app is connected to the cloud server.<br/>
-                   <span className="font-mono text-xs text-gray-400 mt-1 block truncate px-8">
-                     {localStorage.getItem('fintrack_supabase_url') || 'Default Integration'}
-                   </span>
-                 </p>
+                 <div>
+                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Anon Public Key</label>
+                   <input 
+                     required
+                     type="password"
+                     placeholder="eyJh..."
+                     className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-900"
+                     value={serverKey}
+                     onChange={e => setServerKey(e.target.value)}
+                   />
+                 </div>
                </div>
-             )}
+               <button 
+                 type="submit"
+                 className="w-full bg-gray-900 text-white py-2.5 rounded-xl font-bold text-sm shadow-lg hover:bg-black transition-all"
+               >
+                 Update Connection
+               </button>
+             </form>
            </div>
         )}
 
-        {/* Local Mode Warning / Backup */}
-        {!isSupabaseConfigured && !showServerConfig && (
-          <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-4">
-            <div className="p-2 bg-amber-100 rounded-lg shrink-0">
-               <CloudOff className="w-5 h-5 text-amber-700" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-amber-900">Sync is Off</h3>
-              <p className="text-xs text-amber-800 mt-1 leading-relaxed">
-                To sync laptop & phone, click the settings icon above and connect a server, or manually transfer data below.
-              </p>
-              <button 
-                onClick={() => setShowBackup(!showBackup)}
-                className="text-xs text-amber-900 underline mt-2 font-semibold flex items-center gap-1"
-              >
-                <RefreshCw size={12} />
-                Manual Backup / Transfer
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Backup Modal Area */}
-        {showBackup && !isSupabaseConfigured && !showServerConfig && (
-          <div className="mb-6 bg-white border border-gray-200 rounded-2xl p-6 shadow-xl animate-in zoom-in-95 duration-200">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Transfer Data</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <button 
-                onClick={handleExport}
-                className="flex flex-col items-center justify-center p-4 rounded-xl border border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-300 transition-all text-center"
-              >
-                <Download className="w-6 h-6 text-gray-700 mb-2" />
-                <span className="text-sm font-semibold text-gray-900">Export</span>
-                <span className="text-xs text-gray-500 mt-1">Download Backup</span>
-              </button>
-
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                className="flex flex-col items-center justify-center p-4 rounded-xl border border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-300 transition-all text-center"
-              >
-                <Upload className="w-6 h-6 text-gray-700 mb-2" />
-                <span className="text-sm font-semibold text-gray-900">Import</span>
-                <span className="text-xs text-gray-500 mt-1">Restore Backup</span>
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  onChange={handleImport} 
-                  accept=".json" 
-                  className="hidden" 
-                />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Modern Clean Card */}
+        {/* Login Card */}
         <div className="bg-white border border-gray-100 shadow-xl shadow-gray-200/50 rounded-3xl overflow-hidden">
           
-          {/* Header */}
           <div className="p-8 text-center bg-white">
             <div className="w-14 h-14 bg-gray-900 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-md transform rotate-3">
               <Box className="w-7 h-7 text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Welcome back</h1>
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">FINTRACK</h1>
             <p className="text-gray-500 mt-2 text-sm font-medium">
-              Intelligence for your Inventory
+              Enterprise Resource Planning
             </p>
           </div>
 
@@ -288,19 +184,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  {isSupabaseConfigured ? 'Email' : 'Username'}
+                  Email
                 </label>
                 <div className="relative group">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                     <UserIcon className="h-5 w-5 text-gray-400 group-focus-within:text-gray-900 transition-colors" />
                   </div>
                   <input
-                    type={isSupabaseConfigured ? "email" : "text"}
+                    type="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="block w-full pl-11 pr-3 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0 focus:border-gray-900 focus:bg-white transition-all"
-                    placeholder={isSupabaseConfigured ? "name@company.com" : "e.g. admin"}
+                    placeholder="name@company.com"
                   />
                 </div>
               </div>
