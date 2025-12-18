@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Lock, User as UserIcon, ArrowRight, Sparkles, AlertTriangle, CheckCircle, Settings, Globe } from 'lucide-react';
+import { Box, Lock, User as UserIcon, ArrowRight, Sparkles, AlertTriangle, Globe, Mail } from 'lucide-react';
 import { supabase, isSupabaseConfigured, configureSupabase, disconnectSupabase } from '../lib/supabase';
 import { dbService } from '../services/mockDb';
 import { User } from '../types';
@@ -33,15 +33,40 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
     try {
       if (isSupabaseConfigured) {
         if (isLogin) {
+          // --- LOGIN ---
           const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password: cleanPassword });
-          if (error) throw error;
+          if (error) {
+            if (error.message.includes('Email not confirmed')) {
+              throw new Error("Please check your email inbox to confirm your account before logging in.");
+            }
+            if (error.message.includes('Invalid login')) {
+               throw new Error("Invalid email or password.");
+            }
+            throw error;
+          }
+          // Successful login is handled by the onAuthStateChange listener in App.tsx
         } else {
-          const { error } = await supabase.auth.signUp({ email: cleanEmail, password: cleanPassword });
-          if (error) throw error;
-          setMessage("Account created! You can now sign in.");
-          setIsLogin(true);
+          // --- SIGN UP ---
+          const { data, error } = await supabase.auth.signUp({ email: cleanEmail, password: cleanPassword });
+          if (error) {
+            if (error.message.includes('already registered')) {
+              setIsLogin(true);
+              throw new Error("This email is already registered. Please sign in.");
+            }
+            throw error;
+          }
+          
+          if (data.user && !data.session) {
+             // User created but waiting for email confirmation
+             setMessage("Account created successfully! We've sent a confirmation link to your email. Please verify it to log in.");
+             setIsLogin(true);
+          } else if (data.session) {
+             // Auto-logged in (rare configuration)
+             setMessage("Account created! Logging you in...");
+          }
         }
       } else {
+        // --- OFFLINE MOCK MODE ---
         // Fallback for local testing if server disconnects (unlikely in prod)
         if (isLogin) {
           const user = await dbService.login(cleanEmail, cleanPassword);
@@ -222,14 +247,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
               {error && (
                 <div className="bg-red-50 border border-red-100 text-red-600 text-sm p-3 rounded-xl flex items-start gap-2 animate-in fade-in slide-in-from-top-2">
                   <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                  <span>{error}</span>
+                  <span className="flex-1">{error}</span>
                 </div>
               )}
 
               {message && (
-                <div className="bg-emerald-50 border border-emerald-100 text-emerald-600 text-sm p-3 rounded-xl flex items-center animate-in fade-in slide-in-from-top-2">
-                   <Sparkles className="w-4 h-4 mr-2 text-emerald-500" />
-                   {message}
+                <div className="bg-emerald-50 border border-emerald-100 text-emerald-800 text-sm p-3 rounded-xl flex items-start animate-in fade-in slide-in-from-top-2">
+                   {message.includes('email') ? <Mail className="w-4 h-4 mt-0.5 mr-2 text-emerald-600 shrink-0" /> : <Sparkles className="w-4 h-4 mt-0.5 mr-2 text-emerald-500 shrink-0" />}
+                   <span className="flex-1 leading-snug">{message}</span>
                 </div>
               )}
 
