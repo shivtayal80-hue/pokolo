@@ -22,23 +22,26 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
     setMessage('');
     setLoading(true);
 
+    const cleanEmail = email.trim();
+    const cleanPassword = password; // Passwords might explicitly contain spaces, but usually shouldn't.
+
     try {
       if (isSupabaseConfigured) {
         if (isLogin) {
-          const { error } = await supabase.auth.signInWithPassword({ email, password });
+          const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password: cleanPassword });
           if (error) throw error;
         } else {
-          const { error } = await supabase.auth.signUp({ email, password });
+          const { error } = await supabase.auth.signUp({ email: cleanEmail, password: cleanPassword });
           if (error) throw error;
           setMessage("Account created! You can now sign in.");
           setIsLogin(true);
         }
       } else {
         if (isLogin) {
-          const user = await dbService.login(email, password);
+          const user = await dbService.login(cleanEmail, cleanPassword);
           onLogin(user);
         } else {
-          const user = await dbService.register(email, password);
+          const user = await dbService.register(cleanEmail, cleanPassword);
           onLogin(user);
         }
       }
@@ -130,14 +133,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
               </div>
 
               {error && (
-                <div className="bg-red-50 border border-red-100 text-red-600 text-sm p-3 rounded-xl flex items-center">
+                <div className="bg-red-50 border border-red-100 text-red-600 text-sm p-3 rounded-xl flex items-center animate-in fade-in slide-in-from-top-2">
                   <span className="w-1.5 h-1.5 bg-red-500 rounded-full mr-2.5"></span>
                   {error}
                 </div>
               )}
 
               {message && (
-                <div className="bg-emerald-50 border border-emerald-100 text-emerald-600 text-sm p-3 rounded-xl flex items-center">
+                <div className="bg-emerald-50 border border-emerald-100 text-emerald-600 text-sm p-3 rounded-xl flex items-center animate-in fade-in slide-in-from-top-2">
                    <Sparkles className="w-4 h-4 mr-2 text-emerald-500" />
                    {message}
                 </div>

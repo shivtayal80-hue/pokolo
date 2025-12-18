@@ -57,12 +57,21 @@ class MockDBService {
   }
 
   private getStorage<T>(key: string, initial: T): T {
-    const stored = localStorage.getItem(`fintrack_${key}`);
-    return stored ? JSON.parse(stored) : initial;
+    try {
+      const stored = localStorage.getItem(`fintrack_${key}`);
+      return stored ? JSON.parse(stored) : initial;
+    } catch (e) {
+      console.warn(`Failed to parse localStorage for key ${key}, resetting to initial.`, e);
+      return initial;
+    }
   }
 
   private setStorage<T>(key: string, value: T): void {
-    localStorage.setItem(`fintrack_${key}`, JSON.stringify(value));
+    try {
+      localStorage.setItem(`fintrack_${key}`, JSON.stringify(value));
+    } catch (e) {
+      console.error(`Failed to write to localStorage for key ${key}`, e);
+    }
   }
 
   private broadcastUpdate() {
@@ -83,8 +92,12 @@ class MockDBService {
   // --- Auth ---
   async login(username: string, password: string): Promise<User> {
     await delay(500);
+    const normalizedEmail = username.toLowerCase().trim();
     const users = this.getStorage('users', INITIAL_USERS);
-    const user = users.find(u => u.email === username && u.password === password);
+    
+    // Find user with case-insensitive email match
+    const user = users.find(u => u.email.toLowerCase() === normalizedEmail && u.password === password);
+    
     if (!user) throw new Error("Invalid credentials");
     // Return user without password
     const { password: _, ...safeUser } = user;
@@ -93,16 +106,17 @@ class MockDBService {
 
   async register(username: string, password: string): Promise<User> {
     await delay(500);
+    const normalizedEmail = username.toLowerCase().trim();
     const users = this.getStorage('users', INITIAL_USERS);
     
-    if (users.find(u => u.email === username)) {
+    if (users.find(u => u.email.toLowerCase() === normalizedEmail)) {
       throw new Error("Username already exists");
     }
 
     const newUser: User = {
       id: `u-${Date.now()}`,
-      email: username,
-      name: username, // Default name to username
+      email: normalizedEmail,
+      name: username.trim(), // Keep original casing for display name
       password: password,
       role: 'admin' // Default to admin for this mini-erp
     };
