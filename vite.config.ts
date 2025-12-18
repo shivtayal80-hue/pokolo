@@ -7,12 +7,13 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
-    chunkSizeWarningLimit: 2500,
+    // Increased limit to 4000kB to suppress warnings for heavy libs (Supabase, Recharts, XLSX)
+    chunkSizeWarningLimit: 4000, 
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            // Split heavy libraries into their own separate chunks
+            // Split heavy libraries into their own separate chunks for better caching
             if (id.includes('xlsx')) return 'xlsx';
             if (id.includes('jspdf')) return 'jspdf';
             if (id.includes('recharts')) return 'recharts';
