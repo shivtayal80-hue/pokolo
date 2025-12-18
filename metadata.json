@@ -1,0 +1,5 @@
+{
+  "name": "FINTRACK",
+  "description": "A production-ready, multi-user ERP system featuring inventory management, financial tracking, RBAC, and analytics.",
+  "requestFramePermissions": []
+}
