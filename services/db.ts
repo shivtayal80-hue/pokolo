@@ -13,10 +13,21 @@ class SupabaseService {
 
   // --- Real-time Subscription ---
   subscribe(userId: string, onUpdate: () => void): () => void {
+    // Subscribe to changes for both tables for the specific user
     const channel = supabase
       .channel('realtime-db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions', filter: `user_id=eq.${userId}` }, () => onUpdate())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'products', filter: `user_id=eq.${userId}` }, () => onUpdate())
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'transactions', 
+        filter: `user_id=eq.${userId}` 
+      }, () => onUpdate())
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'products', 
+        filter: `user_id=eq.${userId}` 
+      }, () => onUpdate())
       .subscribe();
 
     return () => {
@@ -29,16 +40,20 @@ class SupabaseService {
     const { data, error } = await supabase
       .from('products')
       .select('*')
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .order('name', { ascending: true });
 
-    if (error) throw error;
+    if (error) {
+      console.error('Error fetching products:', error);
+      throw error;
+    }
     
     return data.map((p: any) => ({
       id: p.id,
       userId: p.user_id,
       name: p.name,
       category: p.category,
-      minStockLevel: p.min_stock_level,
+      minStockLevel: Number(p.min_stock_level),
       unit: p.unit
     }));
   }
@@ -74,15 +89,26 @@ class SupabaseService {
       .from('transactions')
       .select('*')
       .eq('user_id', userId)
-      .order('date', { ascending: false });
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false }); // Secondary sort for same-day tx
 
-    if (error) throw error;
+    if (error) {
+      console.error('Error fetching transactions:', error);
+      throw error;
+    }
 
     return data.map((t: any) => {
-      // Client-side overdue check (can be done in DB view alternatively)
+      // Client-side overdue check
       let status = t.payment_status;
-      if (status === 'pending' && t.due_date && new Date(t.due_date) < new Date()) {
-        status = 'overdue';
+      if (status === 'pending' && t.due_date) {
+        // Parse dates safely
+        const dueDate = new Date(t.due_date);
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        
+        if (dueDate < today) {
+          status = 'overdue';
+        }
       }
 
       return {
@@ -92,15 +118,15 @@ class SupabaseService {
         productName: t.product_name,
         type: t.type,
         partyName: t.party_name,
-        quantity: t.quantity,
+        quantity: Number(t.quantity),
         unit: t.unit,
-        pricePerUnit: t.price_per_unit,
-        totalValue: t.total_value,
+        pricePerUnit: Number(t.price_per_unit),
+        totalValue: Number(t.total_value),
         date: t.date,
         paymentType: t.payment_type || 'cash',
         paymentStatus: status || 'paid',
         dueDate: t.due_date,
-        creditPeriod: t.credit_period
+        creditPeriod: t.credit_period ? Number(t.credit_period) : undefined
       };
     });
   }
@@ -111,6 +137,8 @@ class SupabaseService {
     userId: string
   ): Promise<Transaction> {
     
+    // We trust the passed products array for the snapshot to avoid an extra DB call,
+    // but a real production app might fetch the latest product name here.
     const product = products.find(p => p.id === tx.productId);
     if (!product) throw new Error("Product not found");
 
@@ -134,7 +162,7 @@ class SupabaseService {
       .insert([{
         user_id: userId,
         product_id: tx.productId,
-        product_name: product.name,
+        product_name: product.name, // Snapshot name in case product is deleted later
         type: tx.type,
         party_name: tx.partyName,
         quantity: tx.quantity,
@@ -150,7 +178,10 @@ class SupabaseService {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('Error adding transaction:', error);
+      throw error;
+    }
 
     return {
       id: data.id,
@@ -226,4 +257,5 @@ class SupabaseService {
   }
 }
 
+// Automatically switch between Mock and Supabase based on config
 export const dbService = isSupabaseConfigured ? new SupabaseService() : mockDbService;

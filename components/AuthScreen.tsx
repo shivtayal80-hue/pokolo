@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { Box, Lock, User as UserIcon, ArrowRight, Sparkles, AlertTriangle, CloudOff, Download, Upload, RefreshCw } from 'lucide-react';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { Box, Lock, User as UserIcon, ArrowRight, Sparkles, AlertTriangle, CloudOff, Download, Upload, RefreshCw, Database, CheckCircle, Settings } from 'lucide-react';
+import { supabase, isSupabaseConfigured, configureSupabase, disconnectSupabase } from '../lib/supabase';
 import { dbService } from '../services/mockDb';
 import { User } from '../types';
 
@@ -16,6 +16,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
+  const [showServerConfig, setShowServerConfig] = useState(false);
+  
+  // Server Config State
+  const [serverUrl, setServerUrl] = useState('');
+  const [serverKey, setServerKey] = useState('');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -88,6 +94,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
     reader.readAsText(file);
   };
 
+  const handleConnectServer = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!serverUrl.startsWith('https://')) {
+      setError('Project URL must start with https://');
+      return;
+    }
+    configureSupabase(serverUrl, serverKey);
+  };
+
   return (
     <div className="min-h-screen w-full flex items-center justify-center p-4 relative overflow-hidden bg-gray-50">
       
@@ -96,30 +111,114 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
       
       <div className="relative z-10 w-full max-w-md">
         
-        {/* Local Mode Warning Banner */}
-        {!isSupabaseConfigured && (
+        {/* Connection Status / Server Banner */}
+        <div className={`mb-6 border rounded-2xl p-4 flex items-center justify-between shadow-sm animate-in fade-in slide-in-from-top-4 ${isSupabaseConfigured ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-gray-200'}`}>
+           <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg shrink-0 ${isSupabaseConfigured ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                {isSupabaseConfigured ? <CheckCircle className="w-5 h-5" /> : <Database className="w-5 h-5" />}
+              </div>
+              <div>
+                <h3 className={`text-sm font-bold ${isSupabaseConfigured ? 'text-emerald-900' : 'text-gray-900'}`}>
+                  {isSupabaseConfigured ? 'Cloud Connected' : 'Local Mode'}
+                </h3>
+                <p className="text-xs text-gray-500 leading-none mt-1">
+                  {isSupabaseConfigured ? 'Syncing active' : 'Data on this device only'}
+                </p>
+              </div>
+           </div>
+           <button 
+             onClick={() => setShowServerConfig(!showServerConfig)}
+             className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-900 transition-colors"
+           >
+             <Settings size={18} />
+           </button>
+        </div>
+
+        {/* Server Config Modal */}
+        {showServerConfig && (
+           <div className="mb-6 bg-white border border-gray-200 rounded-2xl p-6 shadow-xl animate-in zoom-in-95 duration-200">
+             <div className="flex justify-between items-center mb-4">
+               <h3 className="text-lg font-bold text-gray-900">Server Connection</h3>
+               {isSupabaseConfigured && (
+                 <button onClick={disconnectSupabase} className="text-xs text-red-600 hover:underline">
+                   Reset to Default
+                 </button>
+               )}
+             </div>
+             
+             {!isSupabaseConfigured ? (
+               <form onSubmit={handleConnectServer} className="space-y-4">
+                 <div className="space-y-3">
+                   <div>
+                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Project URL</label>
+                     <input 
+                       required
+                       type="url"
+                       placeholder="https://your-project.supabase.co"
+                       className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-900"
+                       value={serverUrl}
+                       onChange={e => setServerUrl(e.target.value)}
+                     />
+                   </div>
+                   <div>
+                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Anon Public Key</label>
+                     <input 
+                       required
+                       type="password"
+                       placeholder="eyJh..."
+                       className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-900"
+                       value={serverKey}
+                       onChange={e => setServerKey(e.target.value)}
+                     />
+                   </div>
+                 </div>
+                 <button 
+                   type="submit"
+                   className="w-full bg-gray-900 text-white py-2.5 rounded-xl font-bold text-sm shadow-lg hover:bg-black transition-all"
+                 >
+                   Connect & Reload
+                 </button>
+                 <p className="text-[10px] text-gray-400 text-center leading-relaxed">
+                   Enter credentials from your Supabase dashboard.<br/>(Settings &rarr; API)
+                 </p>
+               </form>
+             ) : (
+               <div className="text-center py-4">
+                 <p className="text-sm text-gray-600">
+                   Your app is connected to the cloud server.<br/>
+                   <span className="font-mono text-xs text-gray-400 mt-1 block truncate px-8">
+                     {localStorage.getItem('fintrack_supabase_url') || 'Default Integration'}
+                   </span>
+                 </p>
+               </div>
+             )}
+           </div>
+        )}
+
+        {/* Local Mode Warning / Backup */}
+        {!isSupabaseConfigured && !showServerConfig && (
           <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-4">
             <div className="p-2 bg-amber-100 rounded-lg shrink-0">
                <CloudOff className="w-5 h-5 text-amber-700" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-amber-900">Local Device Mode</h3>
+              <h3 className="text-sm font-bold text-amber-900">Sync is Off</h3>
               <p className="text-xs text-amber-800 mt-1 leading-relaxed">
-                Data is saved to <strong>this device only</strong>.
+                To sync laptop & phone, click the settings icon above and connect a server, or manually transfer data below.
               </p>
               <button 
                 onClick={() => setShowBackup(!showBackup)}
                 className="text-xs text-amber-900 underline mt-2 font-semibold flex items-center gap-1"
               >
                 <RefreshCw size={12} />
-                Transfer data to another device
+                Manual Backup / Transfer
               </button>
             </div>
           </div>
         )}
 
         {/* Backup Modal Area */}
-        {showBackup && !isSupabaseConfigured && (
+        {showBackup && !isSupabaseConfigured && !showServerConfig && (
           <div className="mb-6 bg-white border border-gray-200 rounded-2xl p-6 shadow-xl animate-in zoom-in-95 duration-200">
             <h3 className="text-lg font-bold text-gray-900 mb-4">Transfer Data</h3>
             <div className="grid grid-cols-2 gap-4">
@@ -148,9 +247,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
                 />
               </button>
             </div>
-            <p className="text-xs text-gray-400 mt-4 text-center">
-              1. Click Export on Laptop. 2. Send file to Phone. 3. Click Import on Phone.
-            </p>
           </div>
         )}
 
