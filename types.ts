@@ -59,3 +59,10 @@ export interface ModalProps {
   title: string;
   children: React.ReactNode;
 }
+
+export interface BackupData {
+  users: User[];
+  products: Product[];
+  transactions: Transaction[];
+  timestamp: number;
+}

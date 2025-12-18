@@ -1,4 +1,4 @@
-import { Product, Transaction, InventoryItem, User } from '../types';
+import { Product, Transaction, InventoryItem, User, BackupData } from '../types';
 
 // Initial Mock Data - Assigned to the default 'admin-1' user
 const INITIAL_PRODUCTS: Product[] = [
@@ -89,6 +89,32 @@ class MockDBService {
     return () => this.syncChannel.removeEventListener('message', handler);
   }
 
+  // --- Backup & Restore ---
+  exportDatabase(): BackupData {
+    return {
+      users: this.getStorage('users', INITIAL_USERS),
+      products: this.getStorage('products', INITIAL_PRODUCTS),
+      transactions: this.getStorage('transactions', INITIAL_TRANSACTIONS),
+      timestamp: Date.now()
+    };
+  }
+
+  importDatabase(data: BackupData): boolean {
+    try {
+      if (!data.users || !data.products || !data.transactions) {
+        throw new Error("Invalid backup file format");
+      }
+      this.setStorage('users', data.users);
+      this.setStorage('products', data.products);
+      this.setStorage('transactions', data.transactions);
+      this.broadcastUpdate();
+      return true;
+    } catch (e) {
+      console.error("Import failed", e);
+      return false;
+    }
+  }
+
   // --- Auth ---
   async login(username: string, password: string): Promise<User> {
     await delay(500);
@@ -98,7 +124,7 @@ class MockDBService {
     // Find user with case-insensitive email match
     const user = users.find(u => u.email.toLowerCase() === normalizedEmail && u.password === password);
     
-    if (!user) throw new Error("Invalid credentials");
+    if (!user) throw new Error("Credentials not found on this device. Please create a new account.");
     // Return user without password
     const { password: _, ...safeUser } = user;
     return safeUser;
