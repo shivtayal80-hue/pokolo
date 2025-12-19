@@ -212,7 +212,11 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
       
       const darkColor = [15, 23, 42] as [number, number, number]; 
       const grayColor = [100, 116, 139] as [number, number, number]; 
-      const lightGray = [248, 250, 252] as [number, number, number]; 
+      const lightGray = [248, 250, 252] as [number, number, number];
+      
+      // Transaction Type Colors
+      const saleColor = [22, 163, 74] as [number, number, number]; // Green
+      const purchaseColor = [220, 38, 38] as [number, number, number]; // Red
 
       // -- Header Background --
       doc.setFillColor(...lightGray);
@@ -229,12 +233,15 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
       doc.setFont("helvetica", "normal");
       doc.text("Enterprise Resource Planning", 20, 32);
 
-      // -- Doc Type --
-      doc.setFontSize(30);
-      doc.setTextColor(226, 232, 240);
-      doc.setFont("helvetica", "bold");
-      const docLabel = tx.type === 'sale' ? "INVOICE" : "PURCHASE";
-      doc.text(docLabel, 190, 28, { align: 'right' });
+      // -- Doc Type with Color Coding --
+      doc.setFontSize(24);
+      if (tx.type === 'sale') {
+        doc.setTextColor(...saleColor);
+        doc.text("SALE INVOICE", 190, 28, { align: 'right' });
+      } else {
+        doc.setTextColor(...purchaseColor);
+        doc.text("PURCHASE ORDER", 190, 28, { align: 'right' });
+      }
 
       // -- Status Stamp --
       if (tx.paymentStatus === 'paid') {
@@ -389,6 +396,10 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
     const itemsToInvoice = transactions.filter(t => selectedIds.includes(t.id));
     if (itemsToInvoice.length === 0) return;
 
+    const hasSales = itemsToInvoice.some(t => t.type === 'sale');
+    const hasPurchases = itemsToInvoice.some(t => t.type === 'purchase');
+    const isMixed = hasSales && hasPurchases;
+
     try {
       const doc = new jsPDF();
       
@@ -404,11 +415,15 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
       doc.setFont("helvetica", "normal");
       doc.text(`Generated: ${new Date().toLocaleDateString()}`, 15, 34);
 
+      if (isMixed) {
+        doc.text("(Net Settlement: Sales - Purchases)", 15, 45);
+      }
+
       // Prepare rows for all selected items
       const tableRows = itemsToInvoice.map(tx => {
         const netQuantity = (Number(tx.quantity) || 0) - (Number(tx.deduction) || 0);
         
-        // Particulars Detail with multiline support for deductions and extras
+        // Particulars Detail
         let particulars = safeString(tx.productName);
         
         // Add Deduction Details
@@ -423,21 +438,35 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
            particulars += `\n • Extra Charges: +${Number(tx.extraAmount).toLocaleString()}${reason}`;
         }
 
+        let displayTotal = Number(tx.totalValue);
+        if (isMixed && tx.type === 'purchase') {
+            displayTotal = -displayTotal;
+        }
+
         return [
           new Date(tx.date).toLocaleDateString(),
+          tx.type.toUpperCase(), // New Type Column
           particulars,
           `${netQuantity} ${safeString(tx.unit)}`,
           `${Number(tx.pricePerUnit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-          `${Number(tx.totalValue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+          `${displayTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
         ];
       });
 
-      const totalAmount = itemsToInvoice.reduce((sum, tx) => sum + Number(tx.totalValue), 0);
+      let totalAmount = 0;
+      if (isMixed) {
+        totalAmount = itemsToInvoice.reduce((sum, tx) => {
+            const val = Number(tx.totalValue) || 0;
+            return sum + (tx.type === 'sale' ? val : -val);
+        }, 0);
+      } else {
+        totalAmount = itemsToInvoice.reduce((sum, tx) => sum + Number(tx.totalValue), 0);
+      }
 
       // @ts-ignore
       autoTable(doc, {
-        startY: 50,
-        head: [["Date", "Particulars", "Net Qty", "Price/Unit", "Total (INR)"]],
+        startY: isMixed ? 55 : 50,
+        head: [["Date", "Type", "Particulars", "Net Qty", "Price/Unit", "Total (INR)"]],
         body: tableRows,
         theme: 'grid',
         styles: {
@@ -453,12 +482,24 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
         },
         columnStyles: {
           0: { cellWidth: 25 },
-          1: { cellWidth: 'auto' }, // Particulars gets auto width
-          2: { cellWidth: 25, halign: 'right' },
-          3: { cellWidth: 30, halign: 'right' },
-          4: { cellWidth: 35, halign: 'right' }
+          1: { cellWidth: 25, fontStyle: 'bold' }, // Type Column Width
+          2: { cellWidth: 'auto' }, 
+          3: { cellWidth: 25, halign: 'right' },
+          4: { cellWidth: 25, halign: 'right' },
+          5: { cellWidth: 30, halign: 'right' }
         },
-        foot: [['', '', '', 'Grand Total', `${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]],
+        // Color coding for Type column
+        didParseCell: (data) => {
+            if (data.section === 'body' && data.column.index === 1) {
+                const type = data.cell.raw as string;
+                if (type === 'SALE') {
+                    data.cell.styles.textColor = [22, 163, 74]; // Green
+                } else if (type === 'PURCHASE') {
+                    data.cell.styles.textColor = [220, 38, 38]; // Red
+                }
+            }
+        },
+        foot: [['', '', '', '', 'Grand Total', `${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]],
         footStyles: { 
           fillColor: [249, 250, 251], 
           fontStyle: 'bold', 
