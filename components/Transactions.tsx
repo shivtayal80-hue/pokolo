@@ -176,7 +176,7 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
     try {
       const doc = new jsPDF();
       
-      // Colors
+      // Colors (RGB)
       const brandColor = [14, 165, 233] as [number, number, number]; // Sky 500
       const darkColor = [15, 23, 42] as [number, number, number]; // Slate 900
       const grayColor = [100, 116, 139] as [number, number, number]; // Slate 500
@@ -290,7 +290,7 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
         startY: startY + 25,
         head: [['DESCRIPTION', 'QTY', 'UNIT PRICE', 'AMOUNT']],
         body: tableBody,
-        theme: 'grid', // 'grid' theme gives borders, we can customize
+        theme: 'grid', 
         headStyles: {
           fillColor: [...darkColor],
           textColor: 255,
@@ -517,61 +517,58 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {type === 'purchase' ? 'Cost Price' : 'Selling Price'} <span className="text-xs text-gray-400 font-normal">(per {safeString(currentUnit)})</span>
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <span className="text-gray-400 text-sm">₹</span>
-                  </div>
-                  <input 
-                    required
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5 pl-7"
-                    value={formData.pricePerUnit}
-                    onChange={e => setFormData({...formData, pricePerUnit: e.target.value})}
-                    placeholder="0.00"
-                  />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {type === 'purchase' ? 'Cost Price' : 'Selling Price'} <span className="text-xs text-gray-400 font-normal">(per {safeString(currentUnit)})</span>
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <span className="text-gray-400 text-sm">₹</span>
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Extra / Misc Charges <span className="text-xs text-gray-400 font-normal">(Shipping, Tax)</span>
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <span className="text-gray-400 text-sm">₹</span>
-                  </div>
-                  <input 
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5 pl-7"
-                    value={formData.extraAmount}
-                    onChange={e => setFormData({...formData, extraAmount: e.target.value})}
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {parseFloat(formData.extraAmount) > 0 && (
-               <div className="animate-in fade-in slide-in-from-top-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Reason for Extra Charges</label>
                 <input 
-                  type="text"
-                  className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5"
-                  value={formData.extraReason}
-                  onChange={e => setFormData({...formData, extraReason: e.target.value})}
-                  placeholder="e.g. Shipping Fee, Loading Charges"
+                  required
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5 pl-7"
+                  value={formData.pricePerUnit}
+                  onChange={e => setFormData({...formData, pricePerUnit: e.target.value})}
+                  placeholder="0.00"
                 />
               </div>
-            )}
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-gray-100 pt-4 mt-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Extra Charges/Discount (INR)
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <span className="text-gray-400 text-sm">₹</span>
+                </div>
+                <input 
+                  type="number"
+                  className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5 pl-7"
+                  value={formData.extraAmount}
+                  onChange={e => setFormData({...formData, extraAmount: e.target.value})}
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Reason for Adjustment
+              </label>
+              <input 
+                type="text"
+                className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5"
+                value={formData.extraReason}
+                onChange={e => setFormData({...formData, extraReason: e.target.value})}
+                placeholder="e.g. Service Fee, Discount"
+              />
+            </div>
           </div>
 
           {type === 'purchase' && grossQty > 0 && (
