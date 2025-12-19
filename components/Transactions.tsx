@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowUpRight, ArrowDownLeft, FileText, Trash2, Download, Plus, Check, Clock, AlertTriangle, Scale, Coins } from 'lucide-react';
+import { ArrowUpRight, ArrowDownLeft, FileText, Trash2, Download, Plus, Check, Clock, AlertTriangle, Scale, Coins, CheckSquare, Square } from 'lucide-react';
 import { Card, Button } from './ui/LayoutComponents';
 import { Modal } from './ui/Modal';
 import { Product, Transaction, UserRole, InventoryItem } from '../types';
@@ -23,6 +23,9 @@ const UNIT_TYPES = ['kg', 'g', 'l', 'ml', 'pcs', 'box', 'm', 'cm'];
 export const Transactions: React.FC<TransactionsProps> = ({ transactions, products, inventory, userRole, userId, onRefresh }) => {
   const [activeTab, setActiveTab] = useState<'history' | 'purchase' | 'sale'>('history');
   
+  // Selection State
+  const [selectedTxIds, setSelectedTxIds] = useState<string[]>([]);
+
   // State for multi-item form
   const [items, setItems] = useState([
     { productId: '', quantity: '', deduction: '0', deductionReason: '', pricePerUnit: '' }
@@ -46,6 +49,20 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
 
   const suppliers = Array.from(new Set(transactions.filter(t => t.type === 'purchase').map(t => safeString(t.partyName))));
   const receivers = Array.from(new Set(transactions.filter(t => t.type === 'sale').map(t => safeString(t.partyName))));
+
+  const toggleSelection = (id: string) => {
+    setSelectedTxIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedTxIds(transactions.map(t => t.id));
+    } else {
+      setSelectedTxIds([]);
+    }
+  };
 
   const addItem = () => {
     setItems([...items, { productId: '', quantity: '', deduction: '0', deductionReason: '', pricePerUnit: '' }]);
@@ -193,8 +210,6 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
     try {
       const doc = new jsPDF();
       
-      // Colors
-      const brandColor = [14, 165, 233] as [number, number, number]; 
       const darkColor = [15, 23, 42] as [number, number, number]; 
       const grayColor = [100, 116, 139] as [number, number, number]; 
       const lightGray = [248, 250, 252] as [number, number, number]; 
@@ -243,7 +258,6 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
       // -- Info Grid --
       const startY = 60;
       
-      // Left Side: Party Details
       doc.setFontSize(9);
       doc.setTextColor(...grayColor);
       doc.setFont("helvetica", "bold");
@@ -254,7 +268,6 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
       doc.setFont("helvetica", "bold");
       doc.text(safeString(tx.partyName), 20, startY + 8);
       
-      // Right Side: Meta Details
       const rightColLabelX = 140;
       const rightColValueX = 190;
       
@@ -372,6 +385,122 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
     }
   };
 
+  const generateConsolidatedPDF = (selectedIds: string[]) => {
+    const itemsToInvoice = transactions.filter(t => selectedIds.includes(t.id));
+    if (itemsToInvoice.length === 0) return;
+
+    // Check for unique party to set Bill To
+    const parties = new Set(itemsToInvoice.map(t => safeString(t.partyName)));
+    const distinctParties = Array.from(parties);
+    const primaryParty = distinctParties.length === 1 ? distinctParties[0] : 'Multiple Parties';
+
+    try {
+      const doc = new jsPDF();
+      
+      // Define Colors
+      const darkColor = [15, 23, 42] as [number, number, number]; 
+      const lightGray = [248, 250, 252] as [number, number, number]; 
+      const grayColor = [100, 116, 139] as [number, number, number];
+
+      // Header Background
+      doc.setFillColor(...lightGray);
+      doc.rect(0, 0, 210, 40, 'F');
+
+      // Branding
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(24);
+      doc.setTextColor(...darkColor);
+      doc.text("FINTRACK", 20, 25);
+      
+      doc.setFontSize(10);
+      doc.setTextColor(...grayColor);
+      doc.setFont("helvetica", "normal");
+      doc.text("Consolidated Invoice", 20, 32);
+
+      // Bill To Section
+      doc.setFontSize(10);
+      doc.setTextColor(...grayColor);
+      doc.text("BILL TO:", 20, 50);
+      doc.setFontSize(14);
+      doc.setTextColor(...darkColor);
+      doc.setFont("helvetica", "bold");
+      doc.text(primaryParty, 20, 56);
+      
+      // Metadata
+      doc.setFontSize(10);
+      doc.setTextColor(...grayColor);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Date: ${new Date().toLocaleDateString()}`, 190, 50, { align: 'right' });
+      doc.text(`${selectedIds.length} Items Selected`, 190, 56, { align: 'right' });
+
+      // Table Rows
+      const tableRows = itemsToInvoice.map(tx => {
+        const net = (Number(tx.quantity) || 0) - (Number(tx.deduction) || 0);
+        return [
+          new Date(tx.date).toLocaleDateString(),
+          safeString(tx.productName),
+          `${net} ${safeString(tx.unit)}`,
+          `${Number(tx.pricePerUnit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+          `${Number(tx.totalValue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+        ];
+      });
+
+      const totalAmount = itemsToInvoice.reduce((sum, tx) => sum + (Number(tx.totalValue) || 0), 0);
+
+      // @ts-ignore
+      autoTable(doc, {
+        startY: 65,
+        head: [["Date", "Product", "Qty", "Price", "Total"]],
+        body: tableRows,
+        theme: 'grid',
+        headStyles: {
+            fillColor: [...darkColor],
+            textColor: 255,
+            fontStyle: 'bold',
+            fontSize: 9,
+            cellPadding: 4
+        },
+        bodyStyles: {
+            textColor: [...darkColor],
+            fontSize: 9,
+            cellPadding: 4,
+            valign: 'middle'
+        },
+        foot: [['', '', '', 'Grand Total', `${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]],
+        footStyles: { 
+            fillColor: [240, 240, 240], 
+            textColor: [...darkColor], 
+            fontStyle: 'bold', 
+            halign: 'right',
+            cellPadding: 4
+        },
+        columnStyles: {
+          0: { cellWidth: 30 },
+          1: { cellWidth: 'auto' },
+          2: { cellWidth: 25, halign: 'right' },
+          3: { cellWidth: 35, halign: 'right' },
+          4: { cellWidth: 40, halign: 'right' }
+        }
+      });
+
+      // Footer
+      const pageHeight = doc.internal.pageSize.height;
+      doc.setDrawColor(226, 232, 240);
+      doc.line(20, pageHeight - 20, 190, pageHeight - 20);
+      doc.setFontSize(8);
+      doc.setTextColor(...grayColor);
+      doc.setFont("helvetica", "normal");
+      doc.text("Thank you for your business.", 20, pageHeight - 12);
+      doc.text("Generated by Fintrack ERP", 190, pageHeight - 12, { align: 'right' });
+
+      doc.save(`Consolidated_Invoice_${Date.now()}.pdf`);
+      setSelectedTxIds([]); // Clear selection after generating
+    } catch (err) {
+      console.error(err);
+      alert("Failed to generate PDF: " + safeString(err));
+    }
+  };
+
   const getDaysRemaining = (dueDate: string) => {
     const diff = new Date(dueDate).getTime() - new Date().getTime();
     return Math.ceil(diff / (1000 * 3600 * 24));
@@ -384,11 +513,9 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
     return (
       <Card title={`Record New ${type === 'purchase' ? 'Purchase (Inbound)' : 'Sale (Outbound)'}`} className="max-w-4xl mx-auto border-none shadow-card">
         <form onSubmit={(e) => handleTransaction(e, type)} className="space-y-6">
-          
           {/* General Details Section */}
           <div className="bg-gray-50/50 rounded-xl p-5 border border-gray-100 space-y-5">
             <h4 className="text-sm font-bold text-gray-900 uppercase tracking-wide">General Details</h4>
-            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -668,10 +795,36 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
 
       {activeTab === 'history' && (
         <Card className="p-0 overflow-hidden border-none shadow-card">
+          {/* Action Toolbar for Selections */}
+          {selectedTxIds.length > 0 && (
+            <div className="px-6 py-3 bg-brand-50 border-b border-brand-100 flex items-center justify-between animate-in fade-in slide-in-from-top-2">
+              <span className="text-sm font-medium text-brand-900 flex items-center gap-2">
+                <CheckSquare size={18} className="text-brand-600" />
+                {selectedTxIds.length} item{selectedTxIds.length > 1 ? 's' : ''} selected
+              </span>
+              <Button 
+                onClick={() => generateConsolidatedPDF(selectedTxIds)} 
+                variant="primary" 
+                className="bg-brand-600 hover:bg-brand-700 border-none py-1.5 text-xs shadow-sm"
+              >
+                <FileText className="h-3.5 w-3.5 mr-2" />
+                Generate Consolidated Invoice
+              </Button>
+            </div>
+          )}
+
           <div className="overflow-x-auto">
             <table className="min-w-full">
               <thead>
                 <tr className="border-b border-gray-100">
+                  <th className="px-6 py-4 w-10">
+                    <input 
+                      type="checkbox"
+                      className="rounded border-gray-300 text-brand-600 focus:ring-brand-500 w-4 h-4 cursor-pointer"
+                      onChange={handleSelectAll}
+                      checked={transactions.length > 0 && selectedTxIds.length === transactions.length}
+                    />
+                  </th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Type</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Details</th>
@@ -685,8 +838,18 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
                 {transactions.map((tx) => {
                   const net = (Number(tx.quantity) || 0) - (Number(tx.deduction) || 0);
                   const hasExtras = tx.extraAmount && tx.extraAmount > 0;
+                  const isSelected = selectedTxIds.includes(tx.id);
+                  
                   return (
-                    <tr key={tx.id} className="group hover:bg-gray-50/50 transition-colors">
+                    <tr key={tx.id} className={`group hover:bg-gray-50/50 transition-colors ${isSelected ? 'bg-brand-50/30' : ''}`}>
+                      <td className="px-6 py-4">
+                        <input 
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelection(tx.id)}
+                          className="rounded border-gray-300 text-brand-600 focus:ring-brand-500 w-4 h-4 cursor-pointer"
+                        />
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {new Date(tx.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                       </td>

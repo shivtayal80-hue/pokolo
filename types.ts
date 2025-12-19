@@ -44,6 +44,8 @@ export interface Transaction {
   creditPeriod?: number; // Days
   dueDate?: string; // ISO Date
   paymentStatus: 'paid' | 'pending' | 'overdue';
+
+  invoice_id?: string; // Used to group items together
 }
 
 export interface InventoryItem extends Product {
