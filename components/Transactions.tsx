@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowUpRight, ArrowDownLeft, FileText, Trash2, Download, Plus, Check, Clock, AlertTriangle, Scale, Coins, CheckSquare, Square } from 'lucide-react';
+import { ArrowUpRight, ArrowDownLeft, FileText, Trash2, Download, Plus, Check, Clock, AlertTriangle, Scale, Coins, CheckSquare } from 'lucide-react';
 import { Card, Button } from './ui/LayoutComponents';
 import { Modal } from './ui/Modal';
 import { Product, Transaction, UserRole, InventoryItem } from '../types';
@@ -389,109 +389,52 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
     const itemsToInvoice = transactions.filter(t => selectedIds.includes(t.id));
     if (itemsToInvoice.length === 0) return;
 
-    // Check for unique party to set Bill To
-    const parties = new Set(itemsToInvoice.map(t => safeString(t.partyName)));
-    const distinctParties = Array.from(parties);
-    const primaryParty = distinctParties.length === 1 ? distinctParties[0] : 'Multiple Parties';
-
     try {
       const doc = new jsPDF();
       
-      // Define Colors
-      const darkColor = [15, 23, 42] as [number, number, number]; 
-      const lightGray = [248, 250, 252] as [number, number, number]; 
-      const grayColor = [100, 116, 139] as [number, number, number];
-
-      // Header Background
-      doc.setFillColor(...lightGray);
+      // Header Style (Dark Theme as requested)
+      doc.setFillColor(17, 24, 39); 
       doc.rect(0, 0, 210, 40, 'F');
-
-      // Branding
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(20);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(24);
-      doc.setTextColor(...darkColor);
-      doc.text("FINTRACK", 20, 25);
-      
-      doc.setFontSize(10);
-      doc.setTextColor(...grayColor);
-      doc.setFont("helvetica", "normal");
-      doc.text("Consolidated Invoice", 20, 32);
+      doc.text("FINTRACK CONSOLIDATED INVOICE", 15, 26);
 
-      // Bill To Section
-      doc.setFontSize(10);
-      doc.setTextColor(...grayColor);
-      doc.text("BILL TO:", 20, 50);
-      doc.setFontSize(14);
-      doc.setTextColor(...darkColor);
-      doc.setFont("helvetica", "bold");
-      doc.text(primaryParty, 20, 56);
-      
-      // Metadata
-      doc.setFontSize(10);
-      doc.setTextColor(...grayColor);
-      doc.setFont("helvetica", "normal");
-      doc.text(`Date: ${new Date().toLocaleDateString()}`, 190, 50, { align: 'right' });
-      doc.text(`${selectedIds.length} Items Selected`, 190, 56, { align: 'right' });
+      // Prepare rows for all selected items
+      const tableRows = itemsToInvoice.map(tx => [
+        new Date(tx.date).toLocaleDateString(),
+        safeString(tx.productName),
+        `${tx.quantity} ${tx.unit}`,
+        `INR ${Number(tx.pricePerUnit).toLocaleString()}`,
+        `INR ${Number(tx.totalValue).toLocaleString()}`
+      ]);
 
-      // Table Rows
-      const tableRows = itemsToInvoice.map(tx => {
-        const net = (Number(tx.quantity) || 0) - (Number(tx.deduction) || 0);
-        return [
-          new Date(tx.date).toLocaleDateString(),
-          safeString(tx.productName),
-          `${net} ${safeString(tx.unit)}`,
-          `${Number(tx.pricePerUnit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-          `${Number(tx.totalValue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
-        ];
-      });
-
-      const totalAmount = itemsToInvoice.reduce((sum, tx) => sum + (Number(tx.totalValue) || 0), 0);
+      const totalAmount = itemsToInvoice.reduce((sum, tx) => sum + Number(tx.totalValue), 0);
 
       // @ts-ignore
       autoTable(doc, {
-        startY: 65,
+        startY: 50,
         head: [["Date", "Product", "Qty", "Price", "Total"]],
         body: tableRows,
         theme: 'grid',
-        headStyles: {
-            fillColor: [...darkColor],
-            textColor: 255,
-            fontStyle: 'bold',
-            fontSize: 9,
-            cellPadding: 4
-        },
-        bodyStyles: {
-            textColor: [...darkColor],
-            fontSize: 9,
-            cellPadding: 4,
-            valign: 'middle'
-        },
-        foot: [['', '', '', 'Grand Total', `${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]],
+        foot: [['', '', '', 'Grand Total', `INR ${totalAmount.toLocaleString()}`]],
         footStyles: { 
-            fillColor: [240, 240, 240], 
-            textColor: [...darkColor], 
-            fontStyle: 'bold', 
-            halign: 'right',
-            cellPadding: 4
+          fillColor: [249, 250, 251], 
+          fontStyle: 'bold', 
+          textColor: [17, 24, 39] 
         },
-        columnStyles: {
-          0: { cellWidth: 30 },
-          1: { cellWidth: 'auto' },
-          2: { cellWidth: 25, halign: 'right' },
-          3: { cellWidth: 35, halign: 'right' },
-          4: { cellWidth: 40, halign: 'right' }
+        headStyles: {
+          fillColor: [255, 255, 255],
+          textColor: [17, 24, 39],
+          fontStyle: 'bold',
+          lineWidth: 0.1,
+          lineColor: [229, 231, 235]
+        },
+        styles: {
+          fontSize: 9,
+          cellPadding: 4
         }
       });
-
-      // Footer
-      const pageHeight = doc.internal.pageSize.height;
-      doc.setDrawColor(226, 232, 240);
-      doc.line(20, pageHeight - 20, 190, pageHeight - 20);
-      doc.setFontSize(8);
-      doc.setTextColor(...grayColor);
-      doc.setFont("helvetica", "normal");
-      doc.text("Thank you for your business.", 20, pageHeight - 12);
-      doc.text("Generated by Fintrack ERP", 190, pageHeight - 12, { align: 'right' });
 
       doc.save(`Consolidated_Invoice_${Date.now()}.pdf`);
       setSelectedTxIds([]); // Clear selection after generating
@@ -805,10 +748,10 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
               <Button 
                 onClick={() => generateConsolidatedPDF(selectedTxIds)} 
                 variant="primary" 
-                className="bg-brand-600 hover:bg-brand-700 border-none py-1.5 text-xs shadow-sm"
+                className="bg-blue-600 hover:bg-blue-700 border-none py-1.5 text-xs shadow-sm mb-0"
               >
                 <FileText className="h-3.5 w-3.5 mr-2" />
-                Generate Consolidated Invoice
+                Generate Invoice for {selectedTxIds.length} Items
               </Button>
             </div>
           )}
@@ -820,7 +763,7 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
                   <th className="px-6 py-4 w-10">
                     <input 
                       type="checkbox"
-                      className="rounded border-gray-300 text-brand-600 focus:ring-brand-500 w-4 h-4 cursor-pointer"
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
                       onChange={handleSelectAll}
                       checked={transactions.length > 0 && selectedTxIds.length === transactions.length}
                     />
@@ -841,13 +784,13 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
                   const isSelected = selectedTxIds.includes(tx.id);
                   
                   return (
-                    <tr key={tx.id} className={`group hover:bg-gray-50/50 transition-colors ${isSelected ? 'bg-brand-50/30' : ''}`}>
+                    <tr key={tx.id} className={`group hover:bg-gray-50/50 transition-colors ${isSelected ? 'bg-blue-50/30' : ''}`}>
                       <td className="px-6 py-4">
                         <input 
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => toggleSelection(tx.id)}
-                          className="rounded border-gray-300 text-brand-600 focus:ring-brand-500 w-4 h-4 cursor-pointer"
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
                         />
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
