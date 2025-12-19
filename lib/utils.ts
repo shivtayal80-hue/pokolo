@@ -17,9 +17,11 @@ export const safeString = (val: any): string => {
   // If it's an object/array, try to process it, but never return [object Object]
   if (typeof val === 'object') {
     try {
-      // Prioritize common error properties
+      // Prioritize common error properties if it looks like an error object
       if (val.message && typeof val.message === 'string') return val.message;
       if (val.error && typeof val.error === 'string') return val.error;
+      
+      // Check for name property often found in objects
       if (val.name && typeof val.name === 'string' && val.name !== 'Object') return val.name;
 
       // Check if it has a custom toString that isn't the default Object one

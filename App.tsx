@@ -54,14 +54,22 @@ const App: React.FC = () => {
       if (storedUser) {
         try {
           const parsed = JSON.parse(storedUser);
+          
+          // Check for corruption in stored data
+          const parsedName = safeString(parsed.name);
+          if (!parsed.id || (parsedName === '' && parsed.name && typeof parsed.name === 'string' && parsed.name.includes('object'))) {
+            throw new Error("Corrupted user data");
+          }
+
           // Explicitly construct to drop potential garbage properties/methods
           setUser({
             id: safeString(parsed.id),
             email: safeString(parsed.email),
-            name: safeString(parsed.name) || 'User',
+            name: parsedName || 'User',
             role: parsed.role === 'admin' ? 'admin' : 'staff'
           });
         } catch (e) {
+          console.error('Clearing corrupted user data', e);
           localStorage.removeItem('fintrack_active_user');
           setUser(null);
         }

@@ -98,7 +98,7 @@ class MockDBService {
     return {
         ...safeUser,
         id: safeString(safeUser.id),
-        name: safeString(safeUser.name),
+        name: safeString(safeUser.name) || 'User',
         email: safeString(safeUser.email),
         role: safeUser.role
     };
@@ -108,7 +108,18 @@ class MockDBService {
     await delay(500);
     const users = this.getStorage('users', INITIAL_USERS);
     if (users.find(u => u.email.toLowerCase() === username.toLowerCase().trim())) throw new Error("Username already exists");
-    const newUser: User = { id: `u-${Date.now()}`, email: username.toLowerCase().trim(), name: username.trim(), password, role: 'admin' };
+    
+    // Ensure we don't store [object Object] by using safeString on inputs right away
+    const cleanName = safeString(username).trim() || 'User';
+    
+    const newUser: User = { 
+      id: `u-${Date.now()}`, 
+      email: username.toLowerCase().trim(), 
+      name: cleanName, 
+      password, 
+      role: 'admin' 
+    };
+    
     this.setStorage('users', [...users, newUser]);
     const { password: _, ...safeUser } = newUser;
     return safeUser;
@@ -119,10 +130,10 @@ class MockDBService {
     return products.map(p => ({
         id: safeString(p.id),
         userId: safeString(p.userId),
-        name: safeString(p.name),
-        category: safeString(p.category),
+        name: safeString(p.name) || 'Unknown Product',
+        category: safeString(p.category) || 'General',
         minStockLevel: Number(p.minStockLevel) || 0,
-        unit: safeString(p.unit)
+        unit: safeString(p.unit) || 'units'
     }));
   }
 
@@ -131,10 +142,10 @@ class MockDBService {
     const newProduct: Product = { 
         id: `p-${Date.now()}`, 
         userId,
-        name: safeString(product.name),
-        category: safeString(product.category),
+        name: safeString(product.name) || 'New Product',
+        category: safeString(product.category) || 'General',
         minStockLevel: Number(product.minStockLevel),
-        unit: safeString(product.unit)
+        unit: safeString(product.unit) || 'units'
     };
     this.setStorage('products', [...products, newProduct]);
     this.broadcastUpdate();
@@ -149,13 +160,13 @@ class MockDBService {
         id: safeString(t.id),
         userId: safeString(t.userId),
         productId: safeString(t.productId),
-        productName: safeString(t.productName),
+        productName: safeString(t.productName) || 'Item',
         type: t.type,
-        partyName: safeString(t.partyName),
+        partyName: safeString(t.partyName) || 'N/A',
         quantity: Number(t.quantity) || 0,
         deduction: Number(t.deduction) || 0,
         deductionReason: t.deductionReason ? safeString(t.deductionReason) : undefined,
-        unit: safeString(t.unit),
+        unit: safeString(t.unit) || 'units',
         pricePerUnit: Number(t.pricePerUnit) || 0,
         totalValue: Number(t.totalValue) || 0,
         date: safeString(t.date),
@@ -193,13 +204,13 @@ class MockDBService {
       id: `t-${Date.now()}`,
       userId,
       productId: safeString(tx.productId),
-      productName: safeString(product.name),
+      productName: safeString(product.name) || 'Product',
       type: tx.type,
-      partyName: safeString(tx.partyName),
+      partyName: safeString(tx.partyName) || 'Unknown Party',
       quantity: Number(tx.quantity),
       deduction: Number(tx.deduction),
       deductionReason: tx.deductionReason ? safeString(tx.deductionReason) : undefined,
-      unit: safeString(product.unit),
+      unit: safeString(product.unit) || 'units',
       pricePerUnit: Number(tx.pricePerUnit),
       totalValue,
       date: safeString(tx.date),
