@@ -392,47 +392,78 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
     try {
       const doc = new jsPDF();
       
-      // Header Style (Dark Theme as requested)
+      // Header Style (Dark Theme)
       doc.setFillColor(17, 24, 39); 
       doc.rect(0, 0, 210, 40, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(20);
       doc.setFont("helvetica", "bold");
       doc.text("FINTRACK CONSOLIDATED INVOICE", 15, 26);
+      
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Generated: ${new Date().toLocaleDateString()}`, 15, 34);
 
       // Prepare rows for all selected items
-      const tableRows = itemsToInvoice.map(tx => [
-        new Date(tx.date).toLocaleDateString(),
-        safeString(tx.productName),
-        `${tx.quantity} ${tx.unit}`,
-        `INR ${Number(tx.pricePerUnit).toLocaleString()}`,
-        `INR ${Number(tx.totalValue).toLocaleString()}`
-      ]);
+      const tableRows = itemsToInvoice.map(tx => {
+        const netQuantity = (Number(tx.quantity) || 0) - (Number(tx.deduction) || 0);
+        
+        // Particulars Detail with multiline support for deductions and extras
+        let particulars = safeString(tx.productName);
+        
+        // Add Deduction Details
+        if (tx.deduction && tx.deduction > 0) {
+          const reason = tx.deductionReason ? ` (${safeString(tx.deductionReason)})` : '';
+          particulars += `\n • Gross: ${Number(tx.quantity)} | Ded: -${Number(tx.deduction)}${reason}`;
+        }
+
+        // Add Extra Charge Details
+        if (tx.extraAmount && tx.extraAmount > 0) {
+           const reason = tx.extraReason ? ` (${safeString(tx.extraReason)})` : '';
+           particulars += `\n • Extra Charges: +${Number(tx.extraAmount).toLocaleString()}${reason}`;
+        }
+
+        return [
+          new Date(tx.date).toLocaleDateString(),
+          particulars,
+          `${netQuantity} ${safeString(tx.unit)}`,
+          `${Number(tx.pricePerUnit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+          `${Number(tx.totalValue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+        ];
+      });
 
       const totalAmount = itemsToInvoice.reduce((sum, tx) => sum + Number(tx.totalValue), 0);
 
       // @ts-ignore
       autoTable(doc, {
         startY: 50,
-        head: [["Date", "Product", "Qty", "Price", "Total"]],
+        head: [["Date", "Particulars", "Net Qty", "Price/Unit", "Total (INR)"]],
         body: tableRows,
         theme: 'grid',
-        foot: [['', '', '', 'Grand Total', `INR ${totalAmount.toLocaleString()}`]],
+        styles: {
+          fontSize: 9,
+          cellPadding: 4,
+          overflow: 'linebreak',
+          valign: 'middle'
+        },
+        headStyles: {
+          fillColor: [17, 24, 39], // Dark header
+          textColor: [255, 255, 255],
+          fontStyle: 'bold'
+        },
+        columnStyles: {
+          0: { cellWidth: 25 },
+          1: { cellWidth: 'auto' }, // Particulars gets auto width
+          2: { cellWidth: 25, halign: 'right' },
+          3: { cellWidth: 30, halign: 'right' },
+          4: { cellWidth: 35, halign: 'right' }
+        },
+        foot: [['', '', '', 'Grand Total', `${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`]],
         footStyles: { 
           fillColor: [249, 250, 251], 
           fontStyle: 'bold', 
-          textColor: [17, 24, 39] 
-        },
-        headStyles: {
-          fillColor: [255, 255, 255],
           textColor: [17, 24, 39],
-          fontStyle: 'bold',
-          lineWidth: 0.1,
-          lineColor: [229, 231, 235]
-        },
-        styles: {
-          fontSize: 9,
-          cellPadding: 4
+          halign: 'right'
         }
       });
 
