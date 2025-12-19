@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Box, Lock, User as UserIcon, ArrowRight, Sparkles, AlertTriangle, Globe, Mail } from 'lucide-react';
-import { supabase, isSupabaseConfigured, configureSupabase, disconnectSupabase } from '../lib/supabase';
+import { Box, Lock, User as UserIcon, ArrowRight, Sparkles, AlertTriangle, Mail } from 'lucide-react';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { dbService } from '../services/mockDb';
 import { User } from '../types';
 
@@ -15,12 +15,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showServerConfig, setShowServerConfig] = useState(false);
   
-  // Server Config State
-  const [serverUrl, setServerUrl] = useState('');
-  const [serverKey, setServerKey] = useState('');
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -83,15 +78,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
     }
   };
 
-  const handleConnectServer = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!serverUrl.startsWith('https://')) {
-      setError('Project URL must start with https://');
-      return;
-    }
-    configureSupabase(serverUrl, serverKey);
-  };
-
   return (
     <div className="min-h-screen w-full flex items-center justify-center p-4 relative overflow-hidden bg-gray-50">
       
@@ -100,80 +86,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
       
       <div className="relative z-10 w-full max-w-md">
         
-        {/* Connection Status Indicator */}
-        <div className="flex justify-center mb-6 animate-in fade-in slide-in-from-top-4">
-           <div className={`
-             inline-flex items-center gap-2 px-4 py-2 rounded-full shadow-sm text-xs font-medium border cursor-pointer transition-all
-             ${isSupabaseConfigured ? 'bg-white text-emerald-700 border-emerald-100 hover:border-emerald-200' : 'bg-white text-gray-500 border-gray-200'}
-           `}
-           onClick={() => setShowServerConfig(!showServerConfig)}
-           >
-              {isSupabaseConfigured ? (
-                <>
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                  </span>
-                  Connected to Cloud
-                </>
-              ) : (
-                <>
-                  <Globe size={12} />
-                  Offline Mode
-                </>
-              )}
-           </div>
-        </div>
-
-        {/* Server Config Modal (Hidden by default) */}
-        {showServerConfig && (
-           <div className="mb-6 bg-white border border-gray-200 rounded-2xl p-6 shadow-xl animate-in zoom-in-95 duration-200">
-             <div className="flex justify-between items-center mb-4">
-               <h3 className="text-lg font-bold text-gray-900">Server Configuration</h3>
-               {isSupabaseConfigured && (
-                 <button onClick={disconnectSupabase} className="text-xs text-red-600 hover:underline">
-                   Reset Connection
-                 </button>
-               )}
-             </div>
-             
-             <form onSubmit={handleConnectServer} className="space-y-4">
-               <div className="space-y-3">
-                 <div>
-                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Project URL</label>
-                   <input 
-                     required
-                     type="url"
-                     placeholder="https://your-project.supabase.co"
-                     className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-900"
-                     value={serverUrl}
-                     onChange={e => setServerUrl(e.target.value)}
-                   />
-                 </div>
-                 <div>
-                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Anon Public Key</label>
-                   <input 
-                     required
-                     type="password"
-                     placeholder="eyJh..."
-                     className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-900"
-                     value={serverKey}
-                     onChange={e => setServerKey(e.target.value)}
-                   />
-                 </div>
-               </div>
-               <button 
-                 type="submit"
-                 className="w-full bg-gray-900 text-white py-2.5 rounded-xl font-bold text-sm shadow-lg hover:bg-black transition-all"
-               >
-                 Update Connection
-               </button>
-             </form>
-           </div>
-        )}
-
         {/* Login Card */}
-        <div className="bg-white border border-gray-100 shadow-xl shadow-gray-200/50 rounded-3xl overflow-hidden">
+        <div className="bg-white border border-gray-100 shadow-xl shadow-gray-200/50 rounded-3xl overflow-hidden mt-10">
           
           <div className="p-8 text-center bg-white">
             <div className="w-14 h-14 bg-gray-900 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-md transform rotate-3">
