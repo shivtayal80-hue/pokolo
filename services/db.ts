@@ -95,22 +95,22 @@ class SupabaseService {
   }
 
   async addTransaction(
-    tx: Omit<Transaction, 'id' | 'totalValue' | 'productName' | 'unit' | 'userId' | 'paymentStatus' | 'dueDate'> & { creditPeriod?: number }, 
+    tx: {
+      items: { productId: string; quantity: number; deduction?: number; deductionReason?: string; pricePerUnit: number }[];
+      type: 'purchase' | 'sale';
+      partyName: string;
+      date: string;
+      paymentType: 'cash' | 'credit';
+      creditPeriod?: number;
+      extraAmount?: number;
+      extraReason?: string;
+    },
     products: Product[],
     userId: string
-  ): Promise<Transaction> {
-    const product = products.find(p => p.id === tx.productId);
-    if (!product) throw new Error("Product not found");
-
-    const grossQty = Number(tx.quantity) || 0;
-    const deductionAmt = Number(tx.deduction) || 0;
-    const extraAmount = Number(tx.extraAmount) || 0;
-    
-    const netQuantity = grossQty - deductionAmt;
-    const totalValue = (netQuantity * (Number(tx.pricePerUnit) || 0)) + extraAmount;
-
+  ): Promise<void> {
     let dueDate: string | undefined;
     let paymentStatus = 'paid';
+    
     if (tx.paymentType === 'credit') {
       paymentStatus = 'pending';
       if (tx.creditPeriod) {
@@ -120,59 +120,49 @@ class SupabaseService {
       }
     }
 
-    // Explicitly mapping deduction to match DB schema exactly as requested
-    const { data, error } = await supabase.from('transactions').insert([{
-      user_id: userId,
-      product_id: tx.productId,
-      product_name: product.name,
-      type: tx.type,
-      party_name: tx.partyName,
-      quantity: grossQty,
-      deduction: deductionAmt, 
-      deduction_reason: tx.deductionReason || null,
+    const rows = tx.items.map((item, index) => {
+      const product = products.find(p => p.id === item.productId);
+      if (!product) throw new Error(`Product not found for ID: ${item.productId}`);
+
+      const grossQty = Number(item.quantity) || 0;
+      const deductionAmt = Number(item.deduction) || 0;
+      const netQuantity = grossQty - deductionAmt;
       
-      extra_amount: extraAmount,
-      extra_reason: tx.extraReason || null,
+      // We only apply the extra amount to the FIRST item to avoid inflating revenue/cost totals
+      // when aggregating later.
+      const assignedExtra = index === 0 ? (Number(tx.extraAmount) || 0) : 0;
+      const assignedReason = index === 0 ? (tx.extraReason || null) : null;
+      
+      const itemTotal = (netQuantity * (Number(item.pricePerUnit) || 0)) + assignedExtra;
 
-      unit: product.unit,
-      price_per_unit: tx.pricePerUnit,
-      total_value: totalValue,
-      date: tx.date,
-      payment_type: tx.paymentType,
-      payment_status: paymentStatus,
-      due_date: dueDate,
-      credit_period: tx.creditPeriod
-    }]).select().single();
+      return {
+        user_id: userId,
+        product_id: item.productId,
+        product_name: product.name,
+        type: tx.type,
+        party_name: tx.partyName,
+        quantity: grossQty,
+        deduction: deductionAmt,
+        deduction_reason: item.deductionReason || null,
+        unit: product.unit,
+        price_per_unit: item.pricePerUnit,
+        total_value: itemTotal,
+        date: tx.date,
+        payment_type: tx.paymentType,
+        payment_status: paymentStatus,
+        due_date: dueDate,
+        credit_period: tx.creditPeriod,
+        extra_amount: assignedExtra,
+        extra_reason: assignedReason
+      };
+    });
 
-    // Ensure we throw an Error object with a message, not the raw Supabase object
+    const { error } = await supabase.from('transactions').insert(rows);
+    
     if (error) {
        const errMsg = error.message || error.details || error.hint || 'Transaction creation failed';
        throw new Error(errMsg);
     }
-    
-    return {
-      id: safeString(data.id),
-      userId: safeString(data.user_id),
-      productId: safeString(data.product_id),
-      productName: safeString(data.product_name),
-      type: data.type,
-      partyName: safeString(data.party_name),
-      quantity: Number(data.quantity),
-      deduction: Number(data.deduction),
-      deductionReason: data.deduction_reason ? safeString(data.deduction_reason) : undefined,
-      
-      extraAmount: Number(data.extra_amount),
-      extraReason: data.extra_reason ? safeString(data.extra_reason) : undefined,
-
-      unit: safeString(data.unit),
-      pricePerUnit: Number(data.price_per_unit),
-      totalValue: Number(data.total_value),
-      date: safeString(data.date),
-      paymentType: data.payment_type,
-      paymentStatus: data.payment_status,
-      dueDate: data.due_date ? safeString(data.due_date) : undefined,
-      creditPeriod: data.credit_period ? Number(data.credit_period) : undefined
-    };
   }
 
   async markTransactionAsPaid(id: string, userId: string): Promise<void> {
@@ -200,11 +190,10 @@ class SupabaseService {
         if (tx.type === 'purchase') {
           stock += netQty;
           totalPurchased += netQty;
-          // Calculate cost based on product part of transaction only, 
-          // generally we want Average Cost of Goods to reflect price per unit + allocated extras?
-          // For simplicity, we keep avgCost as pure material cost per unit (pricePerUnit).
-          // Extra amounts are usually overheads.
-          totalCost += (netQty * (Number(tx.pricePerUnit) || 0));
+          // Calculate cost based on product part of transaction only (exclude extraAmount usually)
+          // We subtract extraAmount from totalValue to get raw material cost
+          const rawValue = (Number(tx.totalValue) || 0) - (Number(tx.extraAmount) || 0);
+          totalCost += rawValue;
         } else {
           stock -= netQty;
         }

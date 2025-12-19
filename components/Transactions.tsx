@@ -23,18 +23,18 @@ const UNIT_TYPES = ['kg', 'g', 'l', 'ml', 'pcs', 'box', 'm', 'cm'];
 export const Transactions: React.FC<TransactionsProps> = ({ transactions, products, inventory, userRole, userId, onRefresh }) => {
   const [activeTab, setActiveTab] = useState<'history' | 'purchase' | 'sale'>('history');
   
-  const [formData, setFormData] = useState({
-    productId: '',
+  // State for multi-item form
+  const [items, setItems] = useState([
+    { productId: '', quantity: '', deduction: '0', deductionReason: '', pricePerUnit: '' }
+  ]);
+
+  const [generalData, setGeneralData] = useState({
     partyName: '',
-    quantity: '',
-    deduction: '0',
-    deductionReason: '',
-    extraAmount: '',
-    extraReason: '',
-    pricePerUnit: '',
     date: new Date().toISOString().split('T')[0],
     paymentType: 'cash' as 'cash' | 'credit',
-    creditPeriod: '30'
+    creditPeriod: '30',
+    extraAmount: '',
+    extraReason: ''
   });
   
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -47,55 +47,73 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
   const suppliers = Array.from(new Set(transactions.filter(t => t.type === 'purchase').map(t => safeString(t.partyName))));
   const receivers = Array.from(new Set(transactions.filter(t => t.type === 'sale').map(t => safeString(t.partyName))));
 
-  const selectedProduct = products.find(p => p.id === formData.productId);
-  const currentUnit = selectedProduct ? safeString(selectedProduct.unit) : 'units';
+  const addItem = () => {
+    setItems([...items, { productId: '', quantity: '', deduction: '0', deductionReason: '', pricePerUnit: '' }]);
+  };
 
-  const grossQty = parseFloat(formData.quantity) || 0;
-  const deductionAmt = parseFloat(formData.deduction) || 0;
-  const netQty = Math.max(0, grossQty - deductionAmt);
-  const extraAmt = parseFloat(formData.extraAmount) || 0;
+  const removeItem = (index: number) => {
+    if (items.length > 1) {
+      setItems(items.filter((_, i) => i !== index));
+    }
+  };
+
+  const updateItem = (index: number, field: string, value: string) => {
+    const newItems = [...items];
+    (newItems[index] as any)[field] = value;
+    setItems(newItems);
+  };
 
   const handleTransaction = async (e: React.FormEvent, type: 'purchase' | 'sale') => {
     e.preventDefault();
-    if (type === 'sale') {
-      const item = inventory.find(i => i.id === formData.productId);
-      if (!item || item.stock < netQty) {
-        alert(`Insufficient stock! Current stock: ${item?.stock} ${item?.unit}`);
+    
+    // Validation
+    for (const item of items) {
+      if (!item.productId || !item.quantity || !item.pricePerUnit) {
+        alert("Please fill in all product details for all items.");
         return;
+      }
+      
+      const grossQty = parseFloat(item.quantity) || 0;
+      const deductionAmt = parseFloat(item.deduction) || 0;
+      const netQty = Math.max(0, grossQty - deductionAmt);
+
+      if (type === 'sale') {
+        const invItem = inventory.find(i => i.id === item.productId);
+        if (!invItem || invItem.stock < netQty) {
+          alert(`Insufficient stock for product. Current: ${invItem?.stock}`);
+          return;
+        }
       }
     }
 
     setIsSubmitting(true);
     try {
       await dbService.addTransaction({
-        productId: formData.productId,
+        items: items.map(i => ({
+          productId: i.productId,
+          quantity: parseFloat(i.quantity),
+          deduction: parseFloat(i.deduction),
+          deductionReason: i.deductionReason,
+          pricePerUnit: parseFloat(i.pricePerUnit)
+        })),
         type,
-        partyName: safeString(formData.partyName).trim(),
-        quantity: grossQty,
-        deduction: type === 'purchase' ? deductionAmt : 0,
-        deductionReason: type === 'purchase' && deductionAmt > 0 ? safeString(formData.deductionReason || 'Packaging').trim() : undefined,
-        
-        extraAmount: extraAmt,
-        extraReason: extraAmt > 0 ? safeString(formData.extraReason || 'Misc Fees').trim() : undefined,
-
-        pricePerUnit: parseFloat(formData.pricePerUnit),
-        date: formData.date,
-        paymentType: formData.paymentType,
-        creditPeriod: formData.paymentType === 'credit' ? parseInt(formData.creditPeriod) : undefined
+        partyName: safeString(generalData.partyName).trim(),
+        date: generalData.date,
+        paymentType: generalData.paymentType,
+        creditPeriod: generalData.paymentType === 'credit' ? parseInt(generalData.creditPeriod) : undefined,
+        extraAmount: parseFloat(generalData.extraAmount),
+        extraReason: generalData.extraReason
       }, products, userId);
       
-      setFormData({ 
-        productId: '', 
-        partyName: '', 
-        quantity: '', 
-        deduction: '0',
-        deductionReason: '',
-        extraAmount: '',
-        extraReason: '',
-        pricePerUnit: '',
+      // Reset Form
+      setItems([{ productId: '', quantity: '', deduction: '0', deductionReason: '', pricePerUnit: '' }]);
+      setGeneralData({
+        partyName: '',
         date: new Date().toISOString().split('T')[0],
         paymentType: 'cash',
-        creditPeriod: '30'
+        creditPeriod: '30',
+        extraAmount: '',
+        extraReason: ''
       });
       setActiveTab('history');
       onRefresh();
@@ -122,11 +140,10 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
     e.preventDefault();
     setIsProductSubmitting(true);
     try {
-      const addedProduct = await dbService.addProduct(newProduct, userId);
+      await dbService.addProduct(newProduct, userId);
       setNewProduct({ name: '', category: '', minStockLevel: 10, unit: 'kg' });
       setIsProductModalOpen(false);
       await onRefresh();
-      setFormData(prev => ({ ...prev, productId: addedProduct.id }));
     } catch (err) {
       console.error(err);
       alert("Failed to add product: " + safeString(err));
@@ -176,11 +193,11 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
     try {
       const doc = new jsPDF();
       
-      // Colors (RGB)
-      const brandColor = [14, 165, 233] as [number, number, number]; // Sky 500
-      const darkColor = [15, 23, 42] as [number, number, number]; // Slate 900
-      const grayColor = [100, 116, 139] as [number, number, number]; // Slate 500
-      const lightGray = [248, 250, 252] as [number, number, number]; // Slate 50
+      // Colors
+      const brandColor = [14, 165, 233] as [number, number, number]; 
+      const darkColor = [15, 23, 42] as [number, number, number]; 
+      const grayColor = [100, 116, 139] as [number, number, number]; 
+      const lightGray = [248, 250, 252] as [number, number, number]; 
 
       // -- Header Background --
       doc.setFillColor(...lightGray);
@@ -199,14 +216,14 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
 
       // -- Doc Type --
       doc.setFontSize(30);
-      doc.setTextColor(226, 232, 240); // Subtle background text color
+      doc.setTextColor(226, 232, 240);
       doc.setFont("helvetica", "bold");
       const docLabel = tx.type === 'sale' ? "INVOICE" : "PURCHASE";
       doc.text(docLabel, 190, 28, { align: 'right' });
 
       // -- Status Stamp --
       if (tx.paymentStatus === 'paid') {
-          doc.setDrawColor(16, 185, 129); // Emerald 500
+          doc.setDrawColor(16, 185, 129);
           doc.setTextColor(16, 185, 129);
           doc.setLineWidth(0.5);
           doc.roundedRect(160, 35, 30, 8, 2, 2, 'D');
@@ -214,7 +231,7 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
           doc.setFont("helvetica", "bold");
           doc.text("PAID", 175, 40, { align: 'center' });
       } else if (tx.paymentStatus === 'overdue') {
-          doc.setDrawColor(239, 68, 68); // Red 500
+          doc.setDrawColor(239, 68, 68);
           doc.setTextColor(239, 68, 68);
           doc.setLineWidth(0.5);
           doc.roundedRect(160, 35, 30, 8, 2, 2, 'D');
@@ -260,7 +277,6 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
       const subTotal = netQuantity * Number(tx.pricePerUnit);
       
       let desc = safeString(tx.productName);
-      // Detailed description
       if (tx.deduction && tx.deduction > 0) {
         const reason = tx.deductionReason ? `(${safeString(tx.deductionReason)})` : '';
         desc += `\n • Gross: ${Number(tx.quantity)} ${safeString(tx.unit)}`;
@@ -324,7 +340,6 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
       // @ts-ignore
       const finalY = doc.lastAutoTable.finalY + 15;
       
-      // Total Box
       doc.setFillColor(...lightGray);
       doc.roundedRect(130, finalY - 5, 70, 20, 2, 2, 'F');
       
@@ -367,218 +382,254 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
     const suggestions = type === 'purchase' ? suppliers : receivers;
 
     return (
-      <Card title={`Record New ${type === 'purchase' ? 'Purchase (Inbound)' : 'Sale (Outbound)'}`} className="max-w-2xl mx-auto border-none shadow-card">
-        <form onSubmit={(e) => handleTransaction(e, type)} className="space-y-5">
-          <div className="bg-gray-100 p-1 rounded-xl flex mb-4">
-            <button
-              type="button"
-              onClick={() => setFormData({...formData, paymentType: 'cash'})}
-              className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${formData.paymentType === 'cash' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              Cash Payment
-            </button>
-            <button
-              type="button"
-              onClick={() => setFormData({...formData, paymentType: 'credit'})}
-              className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${formData.paymentType === 'credit' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              Credit / Later
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div className={`${formData.paymentType === 'credit' ? '' : 'sm:col-span-2'}`}>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Transaction Date</label>
-              <input 
-                required
-                type="date"
-                className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5"
-                value={formData.date}
-                onChange={e => setFormData({...formData, date: e.target.value})}
-              />
-            </div>
-
-            {formData.paymentType === 'credit' && (
+      <Card title={`Record New ${type === 'purchase' ? 'Purchase (Inbound)' : 'Sale (Outbound)'}`} className="max-w-4xl mx-auto border-none shadow-card">
+        <form onSubmit={(e) => handleTransaction(e, type)} className="space-y-6">
+          
+          {/* General Details Section */}
+          <div className="bg-gray-50/50 rounded-xl p-5 border border-gray-100 space-y-5">
+            <h4 className="text-sm font-bold text-gray-900 uppercase tracking-wide">General Details</h4>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Credit Period (Days)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {type === 'purchase' ? 'Supplier Name' : 'Receiver / Client'}
+                </label>
+                <input 
+                  required
+                  type="text"
+                  list={listId}
+                  className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5"
+                  value={generalData.partyName}
+                  onChange={e => setGeneralData({...generalData, partyName: e.target.value})}
+                  placeholder={type === 'purchase' ? "e.g. Acme Corp" : "e.g. John Doe"}
+                />
+                <datalist id={listId}>
+                  {suggestions.map(name => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Transaction Date</label>
+                <input 
+                  required
+                  type="date"
+                  className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5"
+                  value={generalData.date}
+                  onChange={e => setGeneralData({...generalData, date: e.target.value})}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Type</label>
+                <div className="flex bg-white rounded-xl border border-gray-200 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setGeneralData({...generalData, paymentType: 'cash'})}
+                    className={`flex-1 py-1.5 text-sm font-medium rounded-lg transition-all ${generalData.paymentType === 'cash' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    Cash
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGeneralData({...generalData, paymentType: 'credit'})}
+                    className={`flex-1 py-1.5 text-sm font-medium rounded-lg transition-all ${generalData.paymentType === 'credit' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    Credit
+                  </button>
+                </div>
+              </div>
+
+              {generalData.paymentType === 'credit' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Credit Period (Days)</label>
+                  <div className="relative">
+                     <Clock className="absolute top-2.5 left-3 h-4 w-4 text-gray-400" />
+                     <input 
+                      required
+                      type="number"
+                      min="1"
+                      className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5 pl-9"
+                      value={generalData.creditPeriod}
+                      onChange={e => setGeneralData({...generalData, creditPeriod: e.target.value})}
+                      placeholder="30"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Extra Charges Section */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2 border-t border-gray-200/50">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Extra Charges/Discount (INR)
+                </label>
                 <div className="relative">
-                   <Clock className="absolute top-2.5 left-3 h-4 w-4 text-gray-400" />
-                   <input 
-                    required
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <span className="text-gray-400 text-sm">₹</span>
+                  </div>
+                  <input 
                     type="number"
-                    min="1"
-                    className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5 pl-9"
-                    value={formData.creditPeriod}
-                    onChange={e => setFormData({...formData, creditPeriod: e.target.value})}
-                    placeholder="30"
+                    className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5 pl-7"
+                    value={generalData.extraAmount}
+                    onChange={e => setGeneralData({...generalData, extraAmount: e.target.value})}
+                    placeholder="0.00"
                   />
                 </div>
               </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Product</label>
-              <div className="flex gap-2">
-                <select 
-                  required
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Reason for Adjustment
+                </label>
+                <input 
+                  type="text"
                   className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5"
-                  value={formData.productId}
-                  onChange={e => setFormData({...formData, productId: e.target.value})}
-                >
-                  <option value="">Select Product...</option>
-                  {products.map(p => (
-                    <option key={p.id} value={p.id}>{safeString(p.name)} ({safeString(p.unit)})</option>
-                  ))}
-                </select>
-                {type === 'purchase' && (
-                  <Button type="button" onClick={() => setIsProductModalOpen(true)} className="px-3" title="New">
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                )}
+                  value={generalData.extraReason}
+                  onChange={e => setGeneralData({...generalData, extraReason: e.target.value})}
+                  placeholder="e.g. Shipping, Discount"
+                />
               </div>
-              {type === 'sale' && formData.productId && (
-                <p className="text-xs text-gray-500 mt-2 ml-1">
-                  Available Stock: <span className="font-medium text-gray-900">{inventory.find(i => i.id === formData.productId)?.stock.toLocaleString() || 0} {currentUnit}</span>
-                </p>
-              )}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {type === 'purchase' ? 'Supplier Name' : 'Receiver / Client'}
-              </label>
-              <input 
-                required
-                type="text"
-                list={listId}
-                className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5"
-                value={formData.partyName}
-                onChange={e => setFormData({...formData, partyName: e.target.value})}
-                placeholder={type === 'purchase' ? "e.g. Acme Corp" : "e.g. John Doe"}
-              />
-              <datalist id={listId}>
-                {suggestions.map(name => (
-                  <option key={name} value={name} />
-                ))}
-              </datalist>
-            </div>
-            
-            <div className={type === 'purchase' ? 'sm:col-span-2 space-y-4' : ''}>
-              <div className={type === 'purchase' ? 'grid grid-cols-2 gap-3' : ''}>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{type === 'purchase' ? 'Gross Qty' : 'Quantity'}</label>
-                  <div className="relative">
-                    <input 
-                      required
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5 pr-12"
-                      value={formData.quantity}
-                      onChange={e => setFormData({...formData, quantity: e.target.value})}
-                      placeholder="0.00"
-                    />
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                      <span className="text-gray-400 text-sm">{safeString(currentUnit)}</span>
-                    </div>
-                  </div>
-                </div>
+          </div>
+
+          {/* Items Section */}
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h4 className="text-sm font-bold text-gray-900 uppercase tracking-wide">Products List</h4>
+              <div className="flex gap-2">
                 {type === 'purchase' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Deduction Amount</label>
-                    <div className="relative">
+                    <Button type="button" onClick={() => setIsProductModalOpen(true)} variant="secondary" className="text-xs py-1.5">
+                      <Plus className="w-3 h-3 mr-1" /> New Product
+                    </Button>
+                )}
+                <Button type="button" onClick={addItem} variant="secondary" className="text-xs py-1.5">
+                  <Plus className="w-3 h-3 mr-1" /> Add Row
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {items.map((item, index) => (
+                <div key={index} className="p-5 bg-white rounded-xl border border-gray-200 shadow-sm relative group">
+                  {items.length > 1 && (
+                    <button 
+                      type="button" 
+                      onClick={() => removeItem(index)}
+                      className="absolute -top-3 -right-3 bg-white text-red-500 shadow-md border rounded-full p-1.5 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
+                      title="Remove Item"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                    {/* Product Selector */}
+                    <div className="md:col-span-4">
+                      <label className="text-xs font-semibold text-gray-500 mb-1 block">Product</label>
+                      <select 
+                        required 
+                        className="w-full rounded-lg border-gray-200 text-sm focus:border-gray-300 focus:ring-0"
+                        value={item.productId}
+                        onChange={e => updateItem(index, 'productId', e.target.value)}
+                      >
+                        <option value="">Select...</option>
+                        {products.map(p => (
+                          <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>
+                        ))}
+                      </select>
+                      {type === 'sale' && item.productId && (
+                        <p className="text-[10px] text-gray-400 mt-1">
+                          Stock: {inventory.find(i => i.id === item.productId)?.stock || 0}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Quantity */}
+                    <div className="md:col-span-2">
+                      <label className="text-xs font-semibold text-gray-500 mb-1 block">Quantity</label>
                       <input 
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5 pr-12"
-                        value={formData.deduction}
-                        onChange={e => setFormData({...formData, deduction: e.target.value})}
+                        type="number" required min="0.01" step="0.01"
+                        className="w-full rounded-lg border-gray-200 text-sm focus:border-gray-300 focus:ring-0"
+                        value={item.quantity}
+                        onChange={e => updateItem(index, 'quantity', e.target.value)}
                         placeholder="0.00"
                       />
-                      <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                        <span className="text-gray-400 text-sm">{safeString(currentUnit)}</span>
+                    </div>
+
+                    {/* Deduction (Purchase Only) */}
+                    {type === 'purchase' ? (
+                       <div className="md:col-span-3 grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-xs font-semibold text-gray-500 mb-1 block">Deduction</label>
+                            <input 
+                              type="number" min="0" step="0.01"
+                              className="w-full rounded-lg border-gray-200 text-sm focus:border-gray-300 focus:ring-0"
+                              value={item.deduction}
+                              onChange={e => updateItem(index, 'deduction', e.target.value)}
+                              placeholder="0"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs font-semibold text-gray-500 mb-1 block">Reason</label>
+                            <input 
+                              type="text"
+                              className="w-full rounded-lg border-gray-200 text-sm focus:border-gray-300 focus:ring-0"
+                              value={item.deductionReason}
+                              onChange={e => updateItem(index, 'deductionReason', e.target.value)}
+                              placeholder="Reason"
+                              disabled={!item.deduction || parseFloat(item.deduction) <= 0}
+                            />
+                          </div>
+                       </div>
+                    ) : (
+                      <div className="md:col-span-3"></div> // Spacer for sales
+                    )}
+
+                    {/* Price */}
+                    <div className="md:col-span-3">
+                      <label className="text-xs font-semibold text-gray-500 mb-1 block">Price/Unit</label>
+                      <div className="relative">
+                        <span className="absolute left-2.5 top-2 text-gray-400 text-xs">₹</span>
+                        <input 
+                          type="number" required min="0.01" step="0.01"
+                          className="w-full rounded-lg border-gray-200 text-sm pl-6 focus:border-gray-300 focus:ring-0"
+                          value={item.pricePerUnit}
+                          onChange={e => updateItem(index, 'pricePerUnit', e.target.value)}
+                          placeholder="0.00"
+                        />
                       </div>
                     </div>
                   </div>
-                )}
-              </div>
-
-              {type === 'purchase' && parseFloat(formData.deduction) > 0 && (
-                <div className="animate-in fade-in slide-in-from-top-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Reason for Deduction</label>
-                  <input 
-                    type="text"
-                    className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5"
-                    value={formData.deductionReason}
-                    onChange={e => setFormData({...formData, deductionReason: e.target.value})}
-                    placeholder="e.g. Packaging, Moisture Loss"
-                  />
+                  
+                  {/* Row Total */}
+                   <div className="mt-3 pt-3 border-t border-gray-50 flex justify-end">
+                     <span className="text-xs font-bold text-gray-700 bg-gray-50 px-2 py-1 rounded">
+                       Row Total: ₹{(((parseFloat(item.quantity) || 0) - (parseFloat(item.deduction) || 0)) * (parseFloat(item.pricePerUnit) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                     </span>
+                  </div>
                 </div>
-              )}
+              ))}
             </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {type === 'purchase' ? 'Cost Price' : 'Selling Price'} <span className="text-xs text-gray-400 font-normal">(per {safeString(currentUnit)})</span>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <span className="text-gray-400 text-sm">₹</span>
+            
+            {/* Grand Total Preview */}
+            <div className="flex justify-end mt-6">
+                <div className="bg-gray-900 text-white px-6 py-3 rounded-xl shadow-lg flex items-center gap-4">
+                  <span className="text-sm font-medium text-gray-400">Grand Total</span>
+                  <span className="text-xl font-bold">
+                    ₹{
+                      (items.reduce((acc, item) => {
+                         const net = (parseFloat(item.quantity) || 0) - (parseFloat(item.deduction) || 0);
+                         return acc + (net * (parseFloat(item.pricePerUnit) || 0));
+                      }, 0) + (parseFloat(generalData.extraAmount) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })
+                    }
+                  </span>
                 </div>
-                <input 
-                  required
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5 pl-7"
-                  value={formData.pricePerUnit}
-                  onChange={e => setFormData({...formData, pricePerUnit: e.target.value})}
-                  placeholder="0.00"
-                />
-              </div>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-gray-100 pt-4 mt-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Extra Charges/Discount (INR)
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <span className="text-gray-400 text-sm">₹</span>
-                </div>
-                <input 
-                  type="number"
-                  className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5 pl-7"
-                  value={formData.extraAmount}
-                  onChange={e => setFormData({...formData, extraAmount: e.target.value})}
-                  placeholder="0.00"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Reason for Adjustment
-              </label>
-              <input 
-                type="text"
-                className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5"
-                value={formData.extraReason}
-                onChange={e => setFormData({...formData, extraReason: e.target.value})}
-                placeholder="e.g. Service Fee, Discount"
-              />
             </div>
           </div>
 
-          {type === 'purchase' && grossQty > 0 && (
-            <div className="bg-brand-50 border border-brand-100 rounded-xl p-4 flex justify-between items-center transition-all">
-               <span className="text-sm font-medium text-brand-700">Net Stock Addition:</span>
-               <span className="text-lg font-bold text-brand-900">{netQty.toLocaleString()} {safeString(currentUnit)}</span>
-            </div>
-          )}
-
-          <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 mt-4">
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
             <Button type="button" variant="secondary" onClick={() => setActiveTab('history')}>Cancel</Button>
             <Button 
               type="submit" 

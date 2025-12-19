@@ -50,7 +50,6 @@ class MockDBService {
       const stored = localStorage.getItem(`fintrack_${key}`);
       if (!stored) return initial;
       if (stored === '[object Object]') {
-        // Corrupt storage detected
         return initial;
       }
       return JSON.parse(stored);
@@ -120,7 +119,6 @@ class MockDBService {
     const users = this.getStorage('users', INITIAL_USERS);
     if (users.find(u => u.email.toLowerCase() === username.toLowerCase().trim())) throw new Error("Username already exists");
     
-    // Ensure we don't store [object Object] by using safeString on inputs right away
     const cleanName = safeString(username).trim() || 'User';
     
     const newUser: User = { 
@@ -193,18 +191,21 @@ class MockDBService {
   }
 
   async addTransaction(
-    tx: Omit<Transaction, 'id' | 'totalValue' | 'productName' | 'unit' | 'userId' | 'paymentStatus' | 'dueDate'> & { creditPeriod?: number }, 
+    tx: {
+      items: { productId: string; quantity: number; deduction?: number; deductionReason?: string; pricePerUnit: number }[];
+      type: 'purchase' | 'sale';
+      partyName: string;
+      date: string;
+      paymentType: 'cash' | 'credit';
+      creditPeriod?: number;
+      extraAmount?: number;
+      extraReason?: string;
+    },
     products: Product[],
     userId: string
-  ): Promise<Transaction> {
+  ): Promise<void> {
     const transactions = this.getStorage<Transaction[]>('transactions', INITIAL_TRANSACTIONS);
-    const product = products.find(p => p.id === tx.productId);
-    if (!product) throw new Error("Product not found");
-
-    const netQuantity = (Number(tx.quantity) || 0) - (Number(tx.deduction) || 0);
-    const extraAmount = Number(tx.extraAmount) || 0;
-    const totalValue = (netQuantity * (Number(tx.pricePerUnit) || 0)) + extraAmount;
-
+    
     let dueDate: string | undefined;
     let paymentStatus: 'paid' | 'pending' | 'overdue' = 'paid';
     if (tx.paymentType === 'credit') {
@@ -216,33 +217,46 @@ class MockDBService {
       }
     }
 
-    const newTx: Transaction = {
-      id: `t-${Date.now()}`,
-      userId,
-      productId: safeString(tx.productId),
-      productName: safeString(product.name) || 'Product',
-      type: tx.type,
-      partyName: safeString(tx.partyName) || 'Unknown Party',
-      quantity: Number(tx.quantity),
-      deduction: Number(tx.deduction),
-      deductionReason: tx.deductionReason ? safeString(tx.deductionReason) : undefined,
+    const newRows = tx.items.map((item, index) => {
+      const product = products.find(p => p.id === item.productId);
+      if (!product) throw new Error("Product not found");
+
+      const grossQty = Number(item.quantity) || 0;
+      const deductionAmt = Number(item.deduction) || 0;
+      const netQuantity = grossQty - deductionAmt;
       
-      extraAmount,
-      extraReason: tx.extraReason ? safeString(tx.extraReason) : undefined,
+      const assignedExtra = index === 0 ? (Number(tx.extraAmount) || 0) : 0;
+      const assignedReason = index === 0 ? (tx.extraReason || null) : undefined;
+      
+      const totalValue = (netQuantity * (Number(item.pricePerUnit) || 0)) + assignedExtra;
 
-      unit: safeString(product.unit) || 'units',
-      pricePerUnit: Number(tx.pricePerUnit),
-      totalValue,
-      date: safeString(tx.date),
-      paymentType: tx.paymentType,
-      creditPeriod: Number(tx.creditPeriod),
-      dueDate,
-      paymentStatus
-    };
+      return {
+        id: `t-${Date.now()}-${index}`,
+        userId,
+        productId: safeString(item.productId),
+        productName: safeString(product.name) || 'Product',
+        type: tx.type,
+        partyName: safeString(tx.partyName) || 'Unknown Party',
+        quantity: grossQty,
+        deduction: deductionAmt,
+        deductionReason: item.deductionReason ? safeString(item.deductionReason) : undefined,
+        
+        extraAmount: assignedExtra,
+        extraReason: assignedReason ? safeString(assignedReason) : undefined,
 
-    this.setStorage('transactions', [newTx, ...transactions]);
+        unit: safeString(product.unit) || 'units',
+        pricePerUnit: Number(item.pricePerUnit),
+        totalValue,
+        date: safeString(tx.date),
+        paymentType: tx.paymentType,
+        creditPeriod: Number(tx.creditPeriod),
+        dueDate,
+        paymentStatus
+      } as Transaction;
+    });
+
+    this.setStorage('transactions', [...newRows, ...transactions]);
     this.broadcastUpdate();
-    return newTx;
   }
 
   async markTransactionAsPaid(id: string, userId: string): Promise<void> {
@@ -272,7 +286,8 @@ class MockDBService {
         if (tx.type === 'purchase') {
           stock += netQty;
           totalPurchased += netQty;
-          totalCost += (netQty * (Number(tx.pricePerUnit) || 0));
+          const rawValue = (Number(tx.totalValue) || 0) - (Number(tx.extraAmount) || 0);
+          totalCost += rawValue;
         } else {
           stock -= netQty;
         }
