@@ -26,9 +26,11 @@ export interface Transaction {
   productName: string; 
   type: 'purchase' | 'sale';
   partyName: string; 
-  quantity: number; // Renamed from quantityKg
+  quantity: number; // Gross quantity
+  deduction?: number; // Optional deduction (e.g., packaging)
+  deductionReason?: string; // Reason/Name for the deduction
   unit: string; // Snapshot of unit at time of transaction
-  pricePerUnit: number; // Renamed from pricePerKg
+  pricePerUnit: number; 
   totalValue: number;
   date: string;
   
@@ -40,8 +42,8 @@ export interface Transaction {
 }
 
 export interface InventoryItem extends Product {
-  stock: number; // Renamed from stockKg
-  avgCost: number; // Renamed from avgCostPerKg
+  stock: number; 
+  avgCost: number; 
   totalValue: number;
   status: 'ok' | 'low' | 'out';
 }

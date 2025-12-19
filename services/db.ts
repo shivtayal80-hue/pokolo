@@ -4,113 +4,44 @@ import { dbService as mockDbService } from './mockDb';
 
 class SupabaseService {
   
-  // --- Auth Helper ---
   async getCurrentUser() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) return null;
     return session.user;
   }
 
-  // --- Real-time Subscription ---
   subscribe(userId: string, onUpdate: () => void): () => void {
-    // Subscribe to changes for both tables for the specific user
     const channel = supabase
       .channel('realtime-db-changes')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'transactions', 
-        filter: `user_id=eq.${userId}` 
-      }, () => onUpdate())
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'products', 
-        filter: `user_id=eq.${userId}` 
-      }, () => onUpdate())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions', filter: `user_id=eq.${userId}` }, () => onUpdate())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products', filter: `user_id=eq.${userId}` }, () => onUpdate())
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }
 
-  // --- Products ---
   async getProducts(userId: string): Promise<Product[]> {
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('user_id', userId)
-      .order('name', { ascending: true });
-
-    if (error) {
-      console.error('Error fetching products:', error);
-      throw error;
-    }
-    
-    return data.map((p: any) => ({
-      id: p.id,
-      userId: p.user_id,
-      name: p.name,
-      category: p.category,
-      minStockLevel: Number(p.min_stock_level),
-      unit: p.unit
-    }));
+    const { data, error } = await supabase.from('products').select('*').eq('user_id', userId).order('name', { ascending: true });
+    if (error) throw error;
+    return data.map((p: any) => ({ id: p.id, userId: p.user_id, name: p.name, category: p.category, minStockLevel: Number(p.min_stock_level), unit: p.unit }));
   }
 
   async addProduct(product: Omit<Product, 'id' | 'userId'>, userId: string): Promise<Product> {
-    const { data, error } = await supabase
-      .from('products')
-      .insert([{
-        user_id: userId,
-        name: product.name,
-        category: product.category,
-        min_stock_level: product.minStockLevel,
-        unit: product.unit
-      }])
-      .select()
-      .single();
-
+    const { data, error } = await supabase.from('products').insert([{ user_id: userId, name: product.name, category: product.category, min_stock_level: product.minStockLevel, unit: product.unit }]).select().single();
     if (error) throw error;
-
-    return {
-      id: data.id,
-      userId: data.user_id,
-      name: data.name,
-      category: data.category,
-      minStockLevel: data.min_stock_level,
-      unit: data.unit
-    };
+    return { id: data.id, userId: data.user_id, name: data.name, category: data.category, minStockLevel: data.min_stock_level, unit: data.unit };
   }
 
-  // --- Transactions ---
   async getTransactions(userId: string): Promise<Transaction[]> {
-    const { data, error } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('user_id', userId)
-      .order('date', { ascending: false })
-      .order('created_at', { ascending: false }); // Secondary sort for same-day tx
-
-    if (error) {
-      console.error('Error fetching transactions:', error);
-      throw error;
-    }
-
+    const { data, error } = await supabase.from('transactions').select('*').eq('user_id', userId).order('date', { ascending: false }).order('created_at', { ascending: false });
+    if (error) throw error;
     return data.map((t: any) => {
-      // Client-side overdue check
       let status = t.payment_status;
       if (status === 'pending' && t.due_date) {
-        // Parse dates safely
         const dueDate = new Date(t.due_date);
         const today = new Date();
         today.setHours(0,0,0,0);
-        
-        if (dueDate < today) {
-          status = 'overdue';
-        }
+        if (dueDate < today) status = 'overdue';
       }
-
       return {
         id: t.id,
         userId: t.user_id,
@@ -119,6 +50,8 @@ class SupabaseService {
         type: t.type,
         partyName: t.party_name,
         quantity: Number(t.quantity),
+        deduction: t.deduction ? Number(t.deduction) : 0,
+        deductionReason: t.deduction_reason || undefined,
         unit: t.unit,
         pricePerUnit: Number(t.price_per_unit),
         totalValue: Number(t.total_value),
@@ -136,18 +69,14 @@ class SupabaseService {
     products: Product[],
     userId: string
   ): Promise<Transaction> {
-    
-    // We trust the passed products array for the snapshot to avoid an extra DB call,
-    // but a real production app might fetch the latest product name here.
     const product = products.find(p => p.id === tx.productId);
     if (!product) throw new Error("Product not found");
 
-    const totalValue = tx.quantity * tx.pricePerUnit;
+    const netQuantity = tx.quantity - (tx.deduction || 0);
+    const totalValue = netQuantity * tx.pricePerUnit;
 
-    // Lifecycle Logic
     let dueDate: string | undefined;
     let paymentStatus = 'paid';
-
     if (tx.paymentType === 'credit') {
       paymentStatus = 'pending';
       if (tx.creditPeriod) {
@@ -157,32 +86,26 @@ class SupabaseService {
       }
     }
 
-    const { data, error } = await supabase
-      .from('transactions')
-      .insert([{
-        user_id: userId,
-        product_id: tx.productId,
-        product_name: product.name, // Snapshot name in case product is deleted later
-        type: tx.type,
-        party_name: tx.partyName,
-        quantity: tx.quantity,
-        unit: product.unit,
-        price_per_unit: tx.pricePerUnit,
-        total_value: totalValue,
-        date: tx.date,
-        payment_type: tx.paymentType,
-        payment_status: paymentStatus,
-        due_date: dueDate,
-        credit_period: tx.creditPeriod
-      }])
-      .select()
-      .single();
+    const { data, error } = await supabase.from('transactions').insert([{
+      user_id: userId,
+      product_id: tx.productId,
+      product_name: product.name,
+      type: tx.type,
+      party_name: tx.partyName,
+      quantity: tx.quantity,
+      deduction: tx.deduction || 0,
+      deduction_reason: tx.deductionReason || null,
+      unit: product.unit,
+      price_per_unit: tx.pricePerUnit,
+      total_value: totalValue,
+      date: tx.date,
+      payment_type: tx.paymentType,
+      payment_status: paymentStatus,
+      due_date: dueDate,
+      credit_period: tx.creditPeriod
+    }]).select().single();
 
-    if (error) {
-      console.error('Error adding transaction:', error);
-      throw error;
-    }
-
+    if (error) throw error;
     return {
       id: data.id,
       userId: data.user_id,
@@ -191,6 +114,8 @@ class SupabaseService {
       type: data.type,
       partyName: data.party_name,
       quantity: data.quantity,
+      deduction: data.deduction,
+      deductionReason: data.deduction_reason,
       unit: data.unit,
       pricePerUnit: data.price_per_unit,
       totalValue: data.total_value,
@@ -203,22 +128,12 @@ class SupabaseService {
   }
 
   async markTransactionAsPaid(id: string, userId: string): Promise<void> {
-    const { error } = await supabase
-      .from('transactions')
-      .update({ payment_status: 'paid' })
-      .eq('id', id)
-      .eq('user_id', userId);
-
+    const { error } = await supabase.from('transactions').update({ payment_status: 'paid' }).eq('id', id).eq('user_id', userId);
     if (error) throw error;
   }
 
   async deleteTransaction(id: string, userId: string): Promise<void> {
-    const { error } = await supabase
-      .from('transactions')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', userId); 
-
+    const { error } = await supabase.from('transactions').delete().eq('id', id).eq('user_id', userId); 
     if (error) throw error;
   }
 
@@ -228,34 +143,26 @@ class SupabaseService {
 
     return products.map(product => {
       const productTx = transactions.filter(t => t.productId === product.id);
-      
       let stock = 0;
       let totalCost = 0;
       let totalPurchased = 0;
 
       productTx.forEach(tx => {
+        const netQty = tx.quantity - (tx.deduction || 0);
         if (tx.type === 'purchase') {
-          stock += tx.quantity;
-          totalPurchased += tx.quantity;
-          totalCost += (tx.quantity * tx.pricePerUnit);
+          stock += netQty;
+          totalPurchased += netQty;
+          totalCost += (netQty * tx.pricePerUnit);
         } else {
-          stock -= tx.quantity;
+          stock -= netQty;
         }
       });
 
       const avgCost = totalPurchased > 0 ? totalCost / totalPurchased : 0;
       const status = stock <= 0 ? 'out' : stock < product.minStockLevel ? 'low' : 'ok';
-
-      return {
-        ...product,
-        stock,
-        avgCost,
-        totalValue: stock * avgCost,
-        status
-      };
+      return { ...product, stock, avgCost, totalValue: stock * avgCost, status };
     });
   }
 }
 
-// Automatically switch between Mock and Supabase based on config
 export const dbService = isSupabaseConfigured ? new SupabaseService() : mockDbService;

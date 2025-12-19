@@ -16,29 +16,16 @@ const INITIAL_TRANSACTIONS: Transaction[] = [
     type: 'purchase',
     partyName: 'Global Beans Co.',
     quantity: 500,
+    deduction: 10,
+    deductionReason: 'Moisture Loss',
     unit: 'kg',
     pricePerUnit: 12.50,
-    totalValue: 6250,
+    totalValue: 6125, // (500-10) * 12.50
     date: new Date(Date.now() - 86400000 * 5).toISOString(),
     paymentType: 'credit',
     creditPeriod: 30,
     dueDate: new Date(Date.now() + 86400000 * 25).toISOString(), // Due in 25 days
     paymentStatus: 'pending'
-  },
-  {
-    id: 't-2',
-    userId: 'admin-1',
-    productId: 'p-1',
-    productName: 'Arabica Coffee Beans',
-    type: 'sale',
-    partyName: 'Morning Brew Café',
-    quantity: 50,
-    unit: 'kg',
-    pricePerUnit: 25.00,
-    totalValue: 1250,
-    date: new Date(Date.now() - 86400000 * 2).toISOString(),
-    paymentType: 'cash',
-    paymentStatus: 'paid'
   }
 ];
 
@@ -52,7 +39,6 @@ class MockDBService {
   private syncChannel: BroadcastChannel;
 
   constructor() {
-    // Simulates WebSockets for Demo Mode: Syncs across tabs
     this.syncChannel = new BroadcastChannel('fintrack_realtime_sync');
   }
 
@@ -61,35 +47,26 @@ class MockDBService {
       const stored = localStorage.getItem(`fintrack_${key}`);
       return stored ? JSON.parse(stored) : initial;
     } catch (e) {
-      console.warn(`Failed to parse localStorage for key ${key}, resetting to initial.`, e);
       return initial;
     }
   }
 
   private setStorage<T>(key: string, value: T): void {
-    try {
-      localStorage.setItem(`fintrack_${key}`, JSON.stringify(value));
-    } catch (e) {
-      console.error(`Failed to write to localStorage for key ${key}`, e);
-    }
+    localStorage.setItem(`fintrack_${key}`, JSON.stringify(value));
   }
 
   private broadcastUpdate() {
     this.syncChannel.postMessage({ type: 'DB_UPDATE' });
   }
 
-  // --- Real-time Subscription ---
   subscribe(userId: string, onUpdate: () => void): () => void {
     const handler = (event: MessageEvent) => {
-      if (event.data.type === 'DB_UPDATE') {
-        onUpdate();
-      }
+      if (event.data.type === 'DB_UPDATE') onUpdate();
     };
     this.syncChannel.addEventListener('message', handler);
     return () => this.syncChannel.removeEventListener('message', handler);
   }
 
-  // --- Backup & Restore ---
   exportDatabase(): BackupData {
     return {
       users: this.getStorage('users', INITIAL_USERS),
@@ -101,96 +78,52 @@ class MockDBService {
 
   importDatabase(data: BackupData): boolean {
     try {
-      if (!data.users || !data.products || !data.transactions) {
-        throw new Error("Invalid backup file format");
-      }
       this.setStorage('users', data.users);
       this.setStorage('products', data.products);
       this.setStorage('transactions', data.transactions);
       this.broadcastUpdate();
       return true;
     } catch (e) {
-      console.error("Import failed", e);
       return false;
     }
   }
 
-  // --- Auth ---
   async login(username: string, password: string): Promise<User> {
     await delay(500);
-    const normalizedEmail = username.toLowerCase().trim();
     const users = this.getStorage('users', INITIAL_USERS);
-    
-    // Find user with case-insensitive email match
-    const user = users.find(u => u.email.toLowerCase() === normalizedEmail && u.password === password);
-    
-    if (!user) throw new Error("Credentials not found on this device. Please create a new account.");
-    // Return user without password
+    const user = users.find(u => u.email.toLowerCase() === username.toLowerCase().trim() && u.password === password);
+    if (!user) throw new Error("Credentials not found.");
     const { password: _, ...safeUser } = user;
     return safeUser;
   }
 
   async register(username: string, password: string): Promise<User> {
     await delay(500);
-    const normalizedEmail = username.toLowerCase().trim();
     const users = this.getStorage('users', INITIAL_USERS);
-    
-    if (users.find(u => u.email.toLowerCase() === normalizedEmail)) {
-      throw new Error("Username already exists");
-    }
-
-    const newUser: User = {
-      id: `u-${Date.now()}`,
-      email: normalizedEmail,
-      name: username.trim(), // Keep original casing for display name
-      password: password,
-      role: 'admin' // Default to admin for this mini-erp
-    };
-
+    if (users.find(u => u.email.toLowerCase() === username.toLowerCase().trim())) throw new Error("Username already exists");
+    const newUser: User = { id: `u-${Date.now()}`, email: username.toLowerCase().trim(), name: username.trim(), password, role: 'admin' };
     this.setStorage('users', [...users, newUser]);
     const { password: _, ...safeUser } = newUser;
     return safeUser;
   }
 
-  // --- Products (RLS Implemented) ---
   async getProducts(userId: string): Promise<Product[]> {
-    await delay(300);
-    const allProducts = this.getStorage('products', INITIAL_PRODUCTS);
-    // RLS: Only return products belonging to the user
-    return allProducts.filter(p => p.userId === userId);
+    return this.getStorage<Product[]>('products', INITIAL_PRODUCTS).filter(p => p.userId === userId);
   }
 
   async addProduct(product: Omit<Product, 'id' | 'userId'>, userId: string): Promise<Product> {
-    await delay(300);
-    const products = this.getStorage('products', INITIAL_PRODUCTS);
-    const newProduct: Product = { 
-      ...product, 
-      id: `p-${Date.now()}`,
-      userId: userId // Assign ownership
-    };
+    const products = this.getStorage<Product[]>('products', INITIAL_PRODUCTS);
+    const newProduct: Product = { ...product, id: `p-${Date.now()}`, userId };
     this.setStorage('products', [...products, newProduct]);
-    this.broadcastUpdate(); // Trigger Sync
+    this.broadcastUpdate();
     return newProduct;
   }
 
-  // --- Transactions (RLS Implemented) ---
   async getTransactions(userId: string): Promise<Transaction[]> {
-    await delay(300);
-    const allTransactions = this.getStorage('transactions', INITIAL_TRANSACTIONS);
-    
-    // Auto-update overdue status on fetch
+    const all = this.getStorage<Transaction[]>('transactions', INITIAL_TRANSACTIONS);
     const now = new Date();
-    const updatedTransactions = allTransactions.map(t => {
-      if (t.paymentStatus === 'pending' && t.dueDate && new Date(t.dueDate) < now) {
-        return { ...t, paymentStatus: 'overdue' as const };
-      }
-      return t;
-    });
-
-    // Save if any statuses changed (optimization skipped for mock)
-    this.setStorage('transactions', updatedTransactions);
-
-    return updatedTransactions.filter(t => t.userId === userId);
+    const updated = all.map(t => (t.paymentStatus === 'pending' && t.dueDate && new Date(t.dueDate) < now) ? { ...t, paymentStatus: 'overdue' as const } : t);
+    return updated.filter(t => t.userId === userId);
   }
 
   async addTransaction(
@@ -198,32 +131,31 @@ class MockDBService {
     products: Product[],
     userId: string
   ): Promise<Transaction> {
-    await delay(500);
-    const transactions = this.getStorage('transactions', INITIAL_TRANSACTIONS);
-    
-    const product = products.find(p => p.id === tx.productId && p.userId === userId);
-    if (!product) throw new Error("Product not found or access denied");
+    const transactions = this.getStorage<Transaction[]>('transactions', INITIAL_TRANSACTIONS);
+    const product = products.find(p => p.id === tx.productId);
+    if (!product) throw new Error("Product not found");
 
-    // Lifecycle Logic
+    const netQuantity = tx.quantity - (tx.deduction || 0);
+    const totalValue = netQuantity * tx.pricePerUnit;
+
     let dueDate: string | undefined;
     let paymentStatus: 'paid' | 'pending' | 'overdue' = 'paid';
-
     if (tx.paymentType === 'credit') {
       paymentStatus = 'pending';
       if (tx.creditPeriod) {
-        const date = new Date(tx.date);
-        date.setDate(date.getDate() + tx.creditPeriod);
-        dueDate = date.toISOString();
+        const d = new Date(tx.date);
+        d.setDate(d.getDate() + tx.creditPeriod);
+        dueDate = d.toISOString();
       }
     }
 
     const newTx: Transaction = {
       ...tx,
       id: `t-${Date.now()}`,
-      userId: userId,
+      userId,
       productName: product.name,
       unit: product.unit,
-      totalValue: tx.quantity * tx.pricePerUnit,
+      totalValue,
       paymentStatus,
       dueDate
     };
@@ -234,26 +166,14 @@ class MockDBService {
   }
 
   async markTransactionAsPaid(id: string, userId: string): Promise<void> {
-    await delay(300);
-    const transactions = this.getStorage('transactions', INITIAL_TRANSACTIONS);
-    const updated = transactions.map(t => {
-      if (t.id === id && t.userId === userId) {
-        return { ...t, paymentStatus: 'paid' as const };
-      }
-      return t;
-    });
-    this.setStorage('transactions', updated);
+    const all = this.getStorage<Transaction[]>('transactions', INITIAL_TRANSACTIONS);
+    this.setStorage('transactions', all.map(t => (t.id === id && t.userId === userId) ? { ...t, paymentStatus: 'paid' as const } : t));
     this.broadcastUpdate();
   }
 
   async deleteTransaction(id: string, userId: string): Promise<void> {
-    await delay(300);
-    const transactions = this.getStorage('transactions', INITIAL_TRANSACTIONS);
-    const txToDelete = transactions.find(t => t.id === id);
-    if (!txToDelete || txToDelete.userId !== userId) {
-      throw new Error("Transaction not found or access denied");
-    }
-    this.setStorage('transactions', transactions.filter(t => t.id !== id));
+    const all = this.getStorage<Transaction[]>('transactions', INITIAL_TRANSACTIONS);
+    this.setStorage('transactions', all.filter(t => t.id !== id || t.userId !== userId));
     this.broadcastUpdate();
   }
 
@@ -263,31 +183,24 @@ class MockDBService {
 
     return products.map(product => {
       const productTx = transactions.filter(t => t.productId === product.id);
-      
       let stock = 0;
       let totalCost = 0;
       let totalPurchased = 0;
 
       productTx.forEach(tx => {
+        const netQty = tx.quantity - (tx.deduction || 0);
         if (tx.type === 'purchase') {
-          stock += tx.quantity;
-          totalPurchased += tx.quantity;
-          totalCost += (tx.quantity * tx.pricePerUnit);
+          stock += netQty;
+          totalPurchased += netQty;
+          totalCost += (netQty * tx.pricePerUnit);
         } else {
-          stock -= tx.quantity;
+          stock -= netQty;
         }
       });
 
       const avgCost = totalPurchased > 0 ? totalCost / totalPurchased : 0;
       const status = stock <= 0 ? 'out' : stock < product.minStockLevel ? 'low' : 'ok';
-
-      return {
-        ...product,
-        stock,
-        avgCost,
-        totalValue: stock * avgCost,
-        status
-      };
+      return { ...product, stock, avgCost, totalValue: stock * avgCost, status };
     });
   }
 }

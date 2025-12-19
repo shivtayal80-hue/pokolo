@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowUpRight, ArrowDownLeft, FileText, Trash2, Download, Plus, Check, Clock, AlertTriangle } from 'lucide-react';
+import { ArrowUpRight, ArrowDownLeft, FileText, Trash2, Download, Plus, Check, Clock, AlertTriangle, Scale } from 'lucide-react';
 import { Card, Button } from './ui/LayoutComponents';
 import { Modal } from './ui/Modal';
 import { Product, Transaction, UserRole, InventoryItem } from '../types';
@@ -27,6 +27,8 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
     productId: '',
     partyName: '',
     quantity: '',
+    deduction: '0',
+    deductionReason: '',
     pricePerUnit: '',
     date: new Date().toISOString().split('T')[0],
     paymentType: 'cash' as 'cash' | 'credit',
@@ -47,11 +49,15 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
   const selectedProduct = products.find(p => p.id === formData.productId);
   const currentUnit = selectedProduct ? selectedProduct.unit : 'units';
 
+  const grossQty = parseFloat(formData.quantity) || 0;
+  const deductionAmt = parseFloat(formData.deduction) || 0;
+  const netQty = Math.max(0, grossQty - deductionAmt);
+
   const handleTransaction = async (e: React.FormEvent, type: 'purchase' | 'sale') => {
     e.preventDefault();
     if (type === 'sale') {
       const item = inventory.find(i => i.id === formData.productId);
-      if (!item || item.stock < parseFloat(formData.quantity)) {
+      if (!item || item.stock < netQty) {
         alert(`Insufficient stock! Current stock: ${item?.stock} ${item?.unit}`);
         return;
       }
@@ -63,7 +69,9 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
         productId: formData.productId,
         type,
         partyName: formData.partyName,
-        quantity: parseFloat(formData.quantity),
+        quantity: grossQty,
+        deduction: type === 'purchase' ? deductionAmt : 0,
+        deductionReason: type === 'purchase' && deductionAmt > 0 ? formData.deductionReason : undefined,
         pricePerUnit: parseFloat(formData.pricePerUnit),
         date: formData.date,
         paymentType: formData.paymentType,
@@ -74,6 +82,8 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
         productId: '', 
         partyName: '', 
         quantity: '', 
+        deduction: '0',
+        deductionReason: '',
         pricePerUnit: '',
         date: new Date().toISOString().split('T')[0],
         paymentType: 'cash',
@@ -135,13 +145,15 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
       ID: t.id,
       Product: t.productName,
       Party: t.partyName,
-      Quantity: t.quantity,
+      'Gross Qty': t.quantity,
+      'Deduction': t.deduction || 0,
+      'Deduction Reason': t.deductionReason || '',
+      'Net Qty': t.quantity - (t.deduction || 0),
       Unit: t.unit,
       'Price/Unit': t.pricePerUnit,
       'Total Value': t.totalValue,
       'Payment': t.paymentType.toUpperCase(),
-      'Status': t.paymentStatus.toUpperCase(),
-      'Due Date': t.dueDate ? new Date(t.dueDate).toLocaleDateString() : '-'
+      'Status': t.paymentStatus.toUpperCase()
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -182,11 +194,20 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
       doc.text(new Date(tx.date).toLocaleDateString(), 85, 68);
       doc.text(tx.partyName, 145, 68);
 
-      const tableColumn = ["Item Description", "Quantity", "Unit Price", "Total"];
+      const netQuantity = tx.quantity - (tx.deduction || 0);
+
+      const tableColumn = ["Item Description", "Qty Details", "Unit Price", "Total"];
+      
+      let qtyDetails = `${netQuantity} ${tx.unit}`;
+      if (tx.deduction && tx.deduction > 0) {
+        const reason = tx.deductionReason ? ` (${tx.deductionReason})` : '';
+        qtyDetails = `Gross: ${tx.quantity}\nDed: -${tx.deduction}${reason}\nNet: ${netQuantity} ${tx.unit}`;
+      }
+
       const tableRows = [
         [
           tx.productName,
-          `${tx.quantity} ${tx.unit}`,
+          qtyDetails,
           `INR ${tx.pricePerUnit.toLocaleString()}`,
           `INR ${tx.totalValue.toLocaleString()}`
         ]
@@ -243,7 +264,6 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
     return (
       <Card title={`Record New ${type === 'purchase' ? 'Purchase (Inbound)' : 'Sale (Outbound)'}`} className="max-w-2xl mx-auto border-none shadow-card">
         <form onSubmit={(e) => handleTransaction(e, type)} className="space-y-5">
-          {/* Payment Type Toggle */}
           <div className="bg-gray-100 p-1 rounded-xl flex mb-4">
             <button
               type="button"
@@ -336,26 +356,55 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
                 ))}
               </datalist>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
-              <div className="relative">
-                <input 
-                  required
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5 pr-12"
-                  value={formData.quantity}
-                  onChange={e => setFormData({...formData, quantity: e.target.value})}
-                  placeholder="0.00"
-                />
-                <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                  <span className="text-gray-400 text-sm">
-                    {currentUnit}
-                  </span>
+            
+            <div className={type === 'purchase' ? 'grid grid-cols-2 gap-3' : ''}>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{type === 'purchase' ? 'Gross Qty' : 'Quantity'}</label>
+                <div className="relative">
+                  <input 
+                    required
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5 pr-12"
+                    value={formData.quantity}
+                    onChange={e => setFormData({...formData, quantity: e.target.value})}
+                    placeholder="0.00"
+                  />
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                    <span className="text-gray-400 text-sm">{currentUnit}</span>
+                  </div>
                 </div>
               </div>
+              {type === 'purchase' && (
+                <div>
+                   <label className="block text-sm font-medium text-gray-700 mb-1">Deduction Details</label>
+                   <div className="flex rounded-xl shadow-sm">
+                      <div className="relative flex-grow focus-within:z-10">
+                        <input 
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className="block w-full rounded-l-xl border-gray-200 focus:border-gray-300 focus:ring-0 text-sm py-2.5 pl-3"
+                          value={formData.deduction}
+                          onChange={e => setFormData({...formData, deduction: e.target.value})}
+                          placeholder="Amt"
+                        />
+                      </div>
+                      <div className="-ml-px relative flex-grow focus-within:z-10">
+                        <input 
+                          type="text"
+                          className="block w-full rounded-r-xl border-gray-200 focus:border-gray-300 focus:ring-0 text-sm py-2.5 pl-3"
+                          value={formData.deductionReason}
+                          onChange={e => setFormData({...formData, deductionReason: e.target.value})}
+                          placeholder="e.g. Bag Wt"
+                        />
+                      </div>
+                   </div>
+                </div>
+              )}
             </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 {type === 'purchase' ? 'Cost Price' : 'Selling Price'}
@@ -377,6 +426,14 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
               </div>
             </div>
           </div>
+
+          {type === 'purchase' && grossQty > 0 && (
+            <div className="bg-brand-50 border border-brand-100 rounded-xl p-4 flex justify-between items-center">
+               <span className="text-sm font-medium text-brand-700">Net Stock Addition:</span>
+               <span className="text-lg font-bold text-brand-900">{netQty.toLocaleString()} {currentUnit}</span>
+            </div>
+          )}
+
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 mt-4">
             <Button type="button" variant="secondary" onClick={() => setActiveTab('history')}>Cancel</Button>
             <Button 
@@ -395,7 +452,6 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-        {/* Modern Tabs */}
         <div className="flex space-x-1 rounded-xl bg-gray-200/60 p-1 w-fit">
           {['history', 'sale', 'purchase'].map((tab) => (
             <button
@@ -431,100 +487,111 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Type</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Details</th>
-                  <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Qty</th>
+                  <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Qty (Net)</th>
                   <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Amount</th>
                   <th className="px-6 py-4 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white">
-                {transactions.map((tx) => (
-                  <tr key={tx.id} className="group hover:bg-gray-50/50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(tx.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${
-                        tx.type === 'purchase' 
-                          ? 'bg-blue-50 text-blue-700 border-blue-100' 
-                          : 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                      }`}>
-                        {tx.type === 'purchase' ? <ArrowDownLeft className="mr-1.5 h-3 w-3" /> : <ArrowUpRight className="mr-1.5 h-3 w-3" />}
-                        {tx.type.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      <div className="font-medium">{tx.productName}</div>
-                      <div className="text-gray-400 text-xs mt-0.5">{tx.partyName}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-right font-medium">
-                      {tx.quantity.toLocaleString()} <span className="text-gray-400 font-normal">{tx.unit}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-right text-gray-900">
-                      {'\u20B9'}{tx.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                       {tx.paymentStatus === 'paid' ? (
-                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                           Paid
-                         </span>
-                       ) : (
-                         <div className="flex flex-col items-center">
-                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mb-1 ${
-                             tx.paymentStatus === 'overdue' 
-                              ? 'bg-red-100 text-red-800' 
-                              : 'bg-yellow-100 text-yellow-800'
-                           }`}>
-                             {tx.paymentStatus === 'overdue' && <AlertTriangle className="w-3 h-3 mr-1" />}
-                             {tx.paymentStatus === 'overdue' ? 'Overdue' : 'Pending'}
+                {transactions.map((tx) => {
+                  const net = tx.quantity - (tx.deduction || 0);
+                  return (
+                    <tr key={tx.id} className="group hover:bg-gray-50/50 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {new Date(tx.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${
+                          tx.type === 'purchase' 
+                            ? 'bg-blue-50 text-blue-700 border-blue-100' 
+                            : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                        }`}>
+                          {tx.type === 'purchase' ? <ArrowDownLeft className="mr-1.5 h-3 w-3" /> : <ArrowUpRight className="mr-1.5 h-3 w-3" />}
+                          {tx.type.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        <div className="font-medium">{tx.productName}</div>
+                        <div className="text-gray-400 text-xs mt-0.5">{tx.partyName}</div>
+                        {tx.deduction && tx.deduction > 0 ? (
+                          <div className="text-[10px] text-amber-600 font-medium mt-1 flex items-center gap-1">
+                            <Scale size={10} /> 
+                            <span>Gross: {tx.quantity}</span>
+                            <span>| Ded: -{tx.deduction}</span>
+                            {tx.deductionReason && <span className="text-amber-700 font-bold">({tx.deductionReason})</span>}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-right font-medium">
+                        {net.toLocaleString()} <span className="text-gray-400 font-normal">{tx.unit}</span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-right text-gray-900">
+                        {'\u20B9'}{tx.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                         {tx.paymentStatus === 'paid' ? (
+                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                             Paid
                            </span>
-                           {tx.dueDate && (
-                             <span className={`text-[10px] ${tx.paymentStatus === 'overdue' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
-                               {tx.paymentStatus === 'overdue' 
-                                 ? `${Math.abs(getDaysRemaining(tx.dueDate))} days late` 
-                                 : `${getDaysRemaining(tx.dueDate)} days left`
-                               }
+                         ) : (
+                           <div className="flex flex-col items-center">
+                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mb-1 ${
+                               tx.paymentStatus === 'overdue' 
+                                ? 'bg-red-100 text-red-800' 
+                                : 'bg-yellow-100 text-yellow-800'
+                             }`}>
+                               {tx.paymentStatus === 'overdue' && <AlertTriangle className="w-3 h-3 mr-1" />}
+                               {tx.paymentStatus === 'overdue' ? 'Overdue' : 'Pending'}
                              </span>
-                           )}
-                         </div>
-                       )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex justify-end gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
-                         {tx.paymentStatus !== 'paid' && (
-                           <button
-                            onClick={() => handleMarkAsPaid(tx.id)}
-                            className="text-emerald-500 hover:text-emerald-700 p-1 bg-emerald-50 rounded-md"
-                            title="Mark as Paid"
-                           >
-                             <Check size={16} />
-                           </button>
+                             {tx.dueDate && (
+                               <span className={`text-[10px] ${tx.paymentStatus === 'overdue' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
+                                 {tx.paymentStatus === 'overdue' 
+                                   ? `${Math.abs(getDaysRemaining(tx.dueDate))} days late` 
+                                   : `${getDaysRemaining(tx.dueDate)} days left`
+                                 }
+                               </span>
+                             )}
+                           </div>
                          )}
-                        <button 
-                          onClick={() => generatePDF(tx)}
-                          disabled={!!pdfGenerating}
-                          className="text-gray-400 hover:text-gray-900 transition-colors p-1"
-                          title="Download Invoice"
-                        >
-                          {pdfGenerating === tx.id ? (
-                            <span className="animate-spin">↻</span>
-                          ) : (
-                            <FileText size={16} />
-                          )}
-                        </button>
-                        {userRole === 'admin' && (
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <div className="flex justify-end gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
+                           {tx.paymentStatus !== 'paid' && (
+                             <button
+                              onClick={() => handleMarkAsPaid(tx.id)}
+                              className="text-emerald-500 hover:text-emerald-700 p-1 bg-emerald-50 rounded-md"
+                              title="Mark as Paid"
+                             >
+                               <Check size={16} />
+                             </button>
+                           )}
                           <button 
-                            onClick={() => handleDelete(tx.id)}
-                            className="text-gray-400 hover:text-red-600 transition-colors p-1"
-                            title="Delete Record"
+                            onClick={() => generatePDF(tx)}
+                            disabled={!!pdfGenerating}
+                            className="text-gray-400 hover:text-gray-900 transition-colors p-1"
+                            title="Download Invoice"
                           >
-                            <Trash2 size={16} />
+                            {pdfGenerating === tx.id ? (
+                              <span className="animate-spin">↻</span>
+                            ) : (
+                              <FileText size={16} />
+                            )}
                           </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          {userRole === 'admin' && (
+                            <button 
+                              onClick={() => handleDelete(tx.id)}
+                              className="text-gray-400 hover:text-red-600 transition-colors p-1"
+                              title="Delete Record"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
