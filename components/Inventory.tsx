@@ -5,6 +5,7 @@ import { Modal } from './ui/Modal';
 import { InventoryItem, Product } from '../types';
 import { dbService } from '../services/db';
 import * as XLSX from 'xlsx';
+import { safeString } from '../lib/utils';
 
 interface InventoryProps {
   inventory: InventoryItem[];
@@ -21,19 +22,19 @@ export const Inventory: React.FC<InventoryProps> = ({ inventory, userId, onRefre
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const filteredItems = inventory.filter(item => 
-    item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    item.category.toLowerCase().includes(searchTerm.toLowerCase())
+    safeString(item.name).toLowerCase().includes(searchTerm.toLowerCase()) || 
+    safeString(item.category).toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleExportExcel = () => {
     const data = filteredItems.map(item => ({
-      'Product Name': item.name,
-      'Category': item.category,
+      'Product Name': safeString(item.name),
+      'Category': safeString(item.category),
       'Current Stock': item.stock,
-      'Unit': item.unit,
+      'Unit': safeString(item.unit),
       'Avg Cost': item.avgCost,
       'Total Value': item.totalValue,
-      'Status': item.status.toUpperCase()
+      'Status': safeString(item.status).toUpperCase()
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);
@@ -101,10 +102,10 @@ export const Inventory: React.FC<InventoryProps> = ({ inventory, userId, onRefre
             <tbody className="bg-white">
               {filteredItems.map((item, idx) => (
                 <tr key={item.id} className="group hover:bg-gray-50/50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{item.name}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.category}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{safeString(item.name)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{safeString(item.category)}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-right font-medium">
-                    {item.stock.toLocaleString()} <span className="text-gray-400 text-xs font-normal ml-0.5">{item.unit}</span>
+                    {item.stock.toLocaleString()} <span className="text-gray-400 text-xs font-normal ml-0.5">{safeString(item.unit)}</span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
                     {'\u20B9'}{item.avgCost.toFixed(2)}
@@ -117,7 +118,7 @@ export const Inventory: React.FC<InventoryProps> = ({ inventory, userId, onRefre
                       ${item.status === 'out' ? 'bg-red-50 text-red-700 border-red-100' : ''}
                     `}>
                       {item.status === 'low' && <AlertCircle className="w-3 h-3 mr-1.5" />}
-                      {item.status === 'out' ? 'Out of Stock' : item.status}
+                      {item.status === 'out' ? 'Out of Stock' : safeString(item.status)}
                     </span>
                   </td>
                 </tr>

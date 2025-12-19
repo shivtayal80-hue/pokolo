@@ -1,6 +1,7 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { Product, Transaction, InventoryItem, User } from '../types';
+import { Product, Transaction, InventoryItem } from '../types';
 import { dbService as mockDbService } from './mockDb';
+import { safeString } from '../lib/utils';
 
 class SupabaseService {
   
@@ -22,20 +23,40 @@ class SupabaseService {
   async getProducts(userId: string): Promise<Product[]> {
     const { data, error } = await supabase.from('products').select('*').eq('user_id', userId).order('name', { ascending: true });
     if (error) throw error;
-    return data.map((p: any) => ({ id: p.id, userId: p.user_id, name: p.name, category: p.category, minStockLevel: Number(p.min_stock_level), unit: p.unit }));
+    return (data || []).map((p: any) => ({ 
+      id: safeString(p.id), 
+      userId: safeString(p.user_id), 
+      name: safeString(p.name || 'Unknown Product'), 
+      category: safeString(p.category || 'General'), 
+      minStockLevel: Number(p.min_stock_level) || 0, 
+      unit: safeString(p.unit || 'units') 
+    }));
   }
 
   async addProduct(product: Omit<Product, 'id' | 'userId'>, userId: string): Promise<Product> {
-    const { data, error } = await supabase.from('products').insert([{ user_id: userId, name: product.name, category: product.category, min_stock_level: product.minStockLevel, unit: product.unit }]).select().single();
+    const { data, error } = await supabase.from('products').insert([{ 
+      user_id: userId, 
+      name: product.name, 
+      category: product.category, 
+      min_stock_level: product.minStockLevel, 
+      unit: product.unit 
+    }]).select().single();
     if (error) throw error;
-    return { id: data.id, userId: data.user_id, name: data.name, category: data.category, minStockLevel: data.min_stock_level, unit: data.unit };
+    return { 
+      id: safeString(data.id), 
+      userId: safeString(data.user_id), 
+      name: safeString(data.name), 
+      category: safeString(data.category), 
+      minStockLevel: Number(data.min_stock_level), 
+      unit: safeString(data.unit) 
+    };
   }
 
   async getTransactions(userId: string): Promise<Transaction[]> {
     const { data, error } = await supabase.from('transactions').select('*').eq('user_id', userId).order('date', { ascending: false }).order('created_at', { ascending: false });
     if (error) throw error;
-    return data.map((t: any) => {
-      let status = t.payment_status;
+    return (data || []).map((t: any) => {
+      let status: 'paid' | 'pending' | 'overdue' = t.payment_status || 'paid';
       if (status === 'pending' && t.due_date) {
         const dueDate = new Date(t.due_date);
         const today = new Date();
@@ -43,22 +64,22 @@ class SupabaseService {
         if (dueDate < today) status = 'overdue';
       }
       return {
-        id: t.id,
-        userId: t.user_id,
-        productId: t.product_id,
-        productName: t.product_name,
-        type: t.type,
-        partyName: t.party_name,
-        quantity: Number(t.quantity),
+        id: safeString(t.id),
+        userId: safeString(t.user_id),
+        productId: safeString(t.product_id),
+        productName: safeString(t.product_name || 'Item'),
+        type: (t.type === 'sale' ? 'sale' : 'purchase') as 'purchase' | 'sale',
+        partyName: safeString(t.party_name || 'N/A'),
+        quantity: Number(t.quantity) || 0,
         deduction: t.deduction ? Number(t.deduction) : 0,
-        deductionReason: t.deduction_reason || undefined,
-        unit: t.unit,
-        pricePerUnit: Number(t.price_per_unit),
-        totalValue: Number(t.total_value),
-        date: t.date,
-        paymentType: t.payment_type || 'cash',
-        paymentStatus: status || 'paid',
-        dueDate: t.due_date,
+        deductionReason: t.deduction_reason ? safeString(t.deduction_reason) : undefined,
+        unit: safeString(t.unit || 'units'),
+        pricePerUnit: Number(t.price_per_unit) || 0,
+        totalValue: Number(t.total_value) || 0,
+        date: safeString(t.date),
+        paymentType: (t.payment_type === 'credit' ? 'credit' : 'cash') as 'cash' | 'credit',
+        paymentStatus: status,
+        dueDate: t.due_date ? safeString(t.due_date) : undefined,
         creditPeriod: t.credit_period ? Number(t.credit_period) : undefined
       };
     });
@@ -72,8 +93,8 @@ class SupabaseService {
     const product = products.find(p => p.id === tx.productId);
     if (!product) throw new Error("Product not found");
 
-    const netQuantity = tx.quantity - (tx.deduction || 0);
-    const totalValue = netQuantity * tx.pricePerUnit;
+    const netQuantity = (Number(tx.quantity) || 0) - (Number(tx.deduction) || 0);
+    const totalValue = netQuantity * (Number(tx.pricePerUnit) || 0);
 
     let dueDate: string | undefined;
     let paymentStatus = 'paid';
@@ -107,23 +128,23 @@ class SupabaseService {
 
     if (error) throw error;
     return {
-      id: data.id,
-      userId: data.user_id,
-      productId: data.product_id,
-      productName: data.product_name,
+      id: safeString(data.id),
+      userId: safeString(data.user_id),
+      productId: safeString(data.product_id),
+      productName: safeString(data.product_name),
       type: data.type,
-      partyName: data.party_name,
-      quantity: data.quantity,
-      deduction: data.deduction,
-      deductionReason: data.deduction_reason,
-      unit: data.unit,
-      pricePerUnit: data.price_per_unit,
-      totalValue: data.total_value,
-      date: data.date,
+      partyName: safeString(data.party_name),
+      quantity: Number(data.quantity),
+      deduction: Number(data.deduction),
+      deductionReason: data.deduction_reason ? safeString(data.deduction_reason) : undefined,
+      unit: safeString(data.unit),
+      pricePerUnit: Number(data.price_per_unit),
+      totalValue: Number(data.total_value),
+      date: safeString(data.date),
       paymentType: data.payment_type,
       paymentStatus: data.payment_status,
-      dueDate: data.due_date,
-      creditPeriod: data.credit_period
+      dueDate: data.due_date ? safeString(data.due_date) : undefined,
+      creditPeriod: data.credit_period ? Number(data.credit_period) : undefined
     };
   }
 
@@ -148,19 +169,25 @@ class SupabaseService {
       let totalPurchased = 0;
 
       productTx.forEach(tx => {
-        const netQty = tx.quantity - (tx.deduction || 0);
+        const netQty = (Number(tx.quantity) || 0) - (Number(tx.deduction) || 0);
         if (tx.type === 'purchase') {
           stock += netQty;
           totalPurchased += netQty;
-          totalCost += (netQty * tx.pricePerUnit);
+          totalCost += (netQty * (Number(tx.pricePerUnit) || 0));
         } else {
           stock -= netQty;
         }
       });
 
       const avgCost = totalPurchased > 0 ? totalCost / totalPurchased : 0;
-      const status = stock <= 0 ? 'out' : stock < product.minStockLevel ? 'low' : 'ok';
-      return { ...product, stock, avgCost, totalValue: stock * avgCost, status };
+      const status: 'ok' | 'low' | 'out' = stock <= 0 ? 'out' : stock < product.minStockLevel ? 'low' : 'ok';
+      return { 
+        ...product, 
+        stock: Number(stock), 
+        avgCost: Number(avgCost), 
+        totalValue: Number(stock * avgCost), 
+        status 
+      };
     });
   }
 }

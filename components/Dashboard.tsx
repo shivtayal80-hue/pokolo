@@ -5,6 +5,7 @@ import {
 import { DollarSign, Package, TrendingUp, AlertTriangle, ClipboardList, Clock, ArrowDown, ArrowUp } from 'lucide-react';
 import { StatCard, Card } from './ui/LayoutComponents';
 import { InventoryItem, Transaction, UserRole } from '../types';
+import { safeNum } from '../lib/utils';
 
 interface DashboardProps {
   inventory: InventoryItem[];
@@ -18,23 +19,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, transactions, u
   const metrics = useMemo(() => {
     const totalRevenue = transactions
       .filter(t => t.type === 'sale')
-      .reduce((sum, t) => sum + t.totalValue, 0);
+      .reduce((sum, t) => sum + safeNum(t.totalValue), 0);
     
     const totalPurchases = transactions
       .filter(t => t.type === 'purchase')
-      .reduce((sum, t) => sum + t.totalValue, 0);
+      .reduce((sum, t) => sum + safeNum(t.totalValue), 0);
 
-    const totalStockValue = inventory.reduce((sum, item) => sum + item.totalValue, 0);
+    const totalStockValue = inventory.reduce((sum, item) => sum + safeNum(item.totalValue), 0);
     const lowStockCount = inventory.filter(i => i.status !== 'ok').length;
 
     // Credit Metrics
     const accountsReceivable = transactions
       .filter(t => t.type === 'sale' && t.paymentStatus !== 'paid')
-      .reduce((sum, t) => sum + t.totalValue, 0);
+      .reduce((sum, t) => sum + safeNum(t.totalValue), 0);
       
     const accountsPayable = transactions
       .filter(t => t.type === 'purchase' && t.paymentStatus !== 'paid')
-      .reduce((sum, t) => sum + t.totalValue, 0);
+      .reduce((sum, t) => sum + safeNum(t.totalValue), 0);
 
     return {
       totalRevenue,
@@ -56,7 +57,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, transactions, u
 
     return last7Days.map(date => {
       const dayTransactions = transactions.filter(t => t.date.startsWith(date) && t.type === 'sale');
-      const dayTotal = dayTransactions.reduce((sum, t) => sum + t.totalValue, 0);
+      const dayTotal = dayTransactions.reduce((sum, t) => sum + safeNum(t.totalValue), 0);
       return {
         date: date.slice(5),
         sales: dayTotal
@@ -115,7 +116,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, transactions, u
               <Clock size={16} className="text-gray-400" />
             </div>
             <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-gray-900">{'\u20B9'}{metrics.accountsReceivable.toLocaleString()}</span>
+              <span className="text-2xl font-bold text-gray-900">{'\u20B9'}{safeNum(metrics.accountsReceivable).toLocaleString()}</span>
               <span className="text-sm text-gray-500">pending collection</span>
             </div>
           </div>
@@ -131,7 +132,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, transactions, u
               <Clock size={16} className="text-gray-400" />
             </div>
             <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-gray-900">{'\u20B9'}{metrics.accountsPayable.toLocaleString()}</span>
+              <span className="text-2xl font-bold text-gray-900">{'\u20B9'}{safeNum(metrics.accountsPayable).toLocaleString()}</span>
               <span className="text-sm text-gray-500">pending repayment</span>
             </div>
           </div>
@@ -142,14 +143,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, transactions, u
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard 
           title="Total Revenue" 
-          value={`\u20B9${metrics.totalRevenue.toLocaleString()}`} 
+          value={`\u20B9${safeNum(metrics.totalRevenue).toLocaleString()}`} 
           icon={DollarSign} 
           colorClass="text-emerald-600"
         />
         {userRole === 'admin' && (
           <StatCard 
             title="Gross Profit" 
-            value={`\u20B9${metrics.grossProfit.toLocaleString()}`} 
+            value={`\u20B9${safeNum(metrics.grossProfit).toLocaleString()}`} 
             subValue="Est. Revenue - COGS"
             icon={TrendingUp} 
             colorClass="text-gray-900"
@@ -157,13 +158,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ inventory, transactions, u
         )}
         <StatCard 
           title="Inventory Value" 
-          value={`\u20B9${metrics.totalStockValue.toLocaleString()}`} 
+          value={`\u20B9${safeNum(metrics.totalStockValue).toLocaleString()}`} 
           icon={Package} 
           colorClass="text-brand-600"
         />
         <StatCard 
           title="Low Stock Alerts" 
-          value={metrics.lowStockCount.toString()} 
+          value={safeNum(metrics.lowStockCount).toString()} 
           subValue="Items requiring attention"
           icon={AlertTriangle} 
           colorClass={metrics.lowStockCount > 0 ? "text-amber-500" : "text-gray-400"}

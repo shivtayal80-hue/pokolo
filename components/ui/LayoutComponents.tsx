@@ -1,5 +1,6 @@
 import React from 'react';
 import { LucideIcon } from 'lucide-react';
+import { safeString } from '../../lib/utils';
 
 interface CardProps {
   children: React.ReactNode;
@@ -12,7 +13,7 @@ export const Card: React.FC<CardProps> = ({ children, className = '', title, act
   <div className={`bg-white rounded-2xl shadow-card ${className}`}>
     {(title || action) && (
       <div className="px-6 py-5 flex justify-between items-center">
-        {title && <h3 className="text-base font-semibold text-gray-900 tracking-tight">{title}</h3>}
+        {title && <h3 className="text-base font-semibold text-gray-900 tracking-tight">{safeString(title)}</h3>}
         {action && <div>{action}</div>}
       </div>
     )}
@@ -37,10 +38,10 @@ export const StatCard: React.FC<StatCardProps> = ({ title, value, subValue, icon
       </div>
     </div>
     <div>
-      <h4 className="text-3xl font-bold text-gray-900 tracking-tight">{value}</h4>
+      <h4 className="text-3xl font-bold text-gray-900 tracking-tight">{safeString(value)}</h4>
       <div className="flex items-center gap-2 mt-1">
-        <p className="text-sm font-medium text-gray-500">{title}</p>
-        {subValue && <span className="text-xs text-gray-400">• {subValue}</span>}
+        <p className="text-sm font-medium text-gray-500">{safeString(title)}</p>
+        {subValue && <span className="text-xs text-gray-400">• {safeString(subValue)}</span>}
       </div>
     </div>
   </div>

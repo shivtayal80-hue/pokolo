@@ -3,6 +3,7 @@ import { Box, Lock, User as UserIcon, ArrowRight, Sparkles, AlertTriangle, Mail 
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { dbService } from '../services/mockDb';
 import { User } from '../types';
+import { safeString } from '../lib/utils';
 
 interface AuthScreenProps {
   onLogin: (user: User) => void;
@@ -161,14 +162,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
               {error && (
                 <div className="bg-red-50 border border-red-100 text-red-600 text-sm p-3 rounded-xl flex items-start gap-2 animate-in fade-in slide-in-from-top-2">
                   <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                  <span className="flex-1">{error}</span>
+                  <span className="flex-1">{safeString(error)}</span>
                 </div>
               )}
 
               {message && (
                 <div className="bg-emerald-50 border border-emerald-100 text-emerald-800 text-sm p-3 rounded-xl flex items-start animate-in fade-in slide-in-from-top-2">
                    {message.includes('email') ? <Mail className="w-4 h-4 mt-0.5 mr-2 text-emerald-600 shrink-0" /> : <Sparkles className="w-4 h-4 mt-0.5 mr-2 text-emerald-500 shrink-0" />}
-                   <span className="flex-1 leading-snug">{message}</span>
+                   <span className="flex-1 leading-snug">{safeString(message)}</span>
                 </div>
               )}
 
