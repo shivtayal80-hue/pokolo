@@ -108,7 +108,8 @@ const App: React.FC = () => {
       setTransactions(txData); 
       setProducts(prodData);
     } catch (e) {
-      console.error("Failed to load data", e);
+      // Use safeString to ensure we log a meaningful message, not [object Object]
+      console.error("Failed to load data:", safeString(e));
     } finally {
       setIsLoading(false);
     }

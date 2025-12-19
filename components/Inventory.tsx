@@ -53,7 +53,7 @@ export const Inventory: React.FC<InventoryProps> = ({ inventory, userId, onRefre
       onRefresh();
     } catch (err) {
       console.error(err);
-      alert("Failed to add product.");
+      alert("Failed to add product: " + safeString(err));
     } finally {
       setIsSubmitting(false);
     }

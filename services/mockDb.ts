@@ -46,14 +46,23 @@ class MockDBService {
   private getStorage<T>(key: string, initial: T): T {
     try {
       const stored = localStorage.getItem(`fintrack_${key}`);
-      return stored ? JSON.parse(stored) : initial;
+      if (!stored) return initial;
+      if (stored === '[object Object]') {
+        // Corrupt storage detected
+        return initial;
+      }
+      return JSON.parse(stored);
     } catch (e) {
       return initial;
     }
   }
 
   private setStorage<T>(key: string, value: T): void {
-    localStorage.setItem(`fintrack_${key}`, JSON.stringify(value));
+    try {
+      localStorage.setItem(`fintrack_${key}`, JSON.stringify(value));
+    } catch (e) {
+      console.error("Failed to save to localStorage", e);
+    }
   }
 
   private broadcastUpdate() {

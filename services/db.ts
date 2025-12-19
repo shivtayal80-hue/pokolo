@@ -6,7 +6,8 @@ import { safeString } from '../lib/utils';
 class SupabaseService {
   
   async getCurrentUser() {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error) console.error("Session error:", error.message);
     if (!session?.user) return null;
     return session.user;
   }
@@ -22,7 +23,7 @@ class SupabaseService {
 
   async getProducts(userId: string): Promise<Product[]> {
     const { data, error } = await supabase.from('products').select('*').eq('user_id', userId).order('name', { ascending: true });
-    if (error) throw error;
+    if (error) throw new Error(error.message || 'Failed to fetch products');
     return (data || []).map((p: any) => ({ 
       id: safeString(p.id), 
       userId: safeString(p.user_id), 
@@ -41,7 +42,9 @@ class SupabaseService {
       min_stock_level: product.minStockLevel, 
       unit: product.unit 
     }]).select().single();
-    if (error) throw error;
+    
+    if (error) throw new Error(error.message || 'Failed to add product');
+    
     return { 
       id: safeString(data.id), 
       userId: safeString(data.user_id), 
@@ -54,7 +57,9 @@ class SupabaseService {
 
   async getTransactions(userId: string): Promise<Transaction[]> {
     const { data, error } = await supabase.from('transactions').select('*').eq('user_id', userId).order('date', { ascending: false }).order('created_at', { ascending: false });
-    if (error) throw error;
+    
+    if (error) throw new Error(error.message || 'Failed to fetch transactions');
+    
     return (data || []).map((t: any) => {
       let status: 'paid' | 'pending' | 'overdue' = t.payment_status || 'paid';
       if (status === 'pending' && t.due_date) {
@@ -71,7 +76,7 @@ class SupabaseService {
         type: (t.type === 'sale' ? 'sale' : 'purchase') as 'purchase' | 'sale',
         partyName: safeString(t.party_name) || 'N/A',
         quantity: Number(t.quantity) || 0,
-        deduction: t.deduction ? Number(t.deduction) : 0,
+        deduction: Number(t.deduction || 0),
         deductionReason: t.deduction_reason ? safeString(t.deduction_reason) : undefined,
         unit: safeString(t.unit) || 'units',
         pricePerUnit: Number(t.price_per_unit) || 0,
@@ -93,7 +98,9 @@ class SupabaseService {
     const product = products.find(p => p.id === tx.productId);
     if (!product) throw new Error("Product not found");
 
-    const netQuantity = (Number(tx.quantity) || 0) - (Number(tx.deduction) || 0);
+    const grossQty = Number(tx.quantity) || 0;
+    const deductionAmt = Number(tx.deduction) || 0;
+    const netQuantity = grossQty - deductionAmt;
     const totalValue = netQuantity * (Number(tx.pricePerUnit) || 0);
 
     let dueDate: string | undefined;
@@ -107,14 +114,15 @@ class SupabaseService {
       }
     }
 
+    // Explicitly mapping deduction to match DB schema exactly as requested
     const { data, error } = await supabase.from('transactions').insert([{
       user_id: userId,
       product_id: tx.productId,
       product_name: product.name,
       type: tx.type,
       party_name: tx.partyName,
-      quantity: tx.quantity,
-      deduction: tx.deduction || 0,
+      quantity: grossQty,
+      deduction: deductionAmt, 
       deduction_reason: tx.deductionReason || null,
       unit: product.unit,
       price_per_unit: tx.pricePerUnit,
@@ -126,7 +134,12 @@ class SupabaseService {
       credit_period: tx.creditPeriod
     }]).select().single();
 
-    if (error) throw error;
+    // Ensure we throw an Error object with a message, not the raw Supabase object
+    if (error) {
+       const errMsg = error.message || error.details || error.hint || 'Transaction creation failed';
+       throw new Error(errMsg);
+    }
+    
     return {
       id: safeString(data.id),
       userId: safeString(data.user_id),
@@ -150,12 +163,12 @@ class SupabaseService {
 
   async markTransactionAsPaid(id: string, userId: string): Promise<void> {
     const { error } = await supabase.from('transactions').update({ payment_status: 'paid' }).eq('id', id).eq('user_id', userId);
-    if (error) throw error;
+    if (error) throw new Error(error.message || 'Failed to update transaction');
   }
 
   async deleteTransaction(id: string, userId: string): Promise<void> {
     const { error } = await supabase.from('transactions').delete().eq('id', id).eq('user_id', userId); 
-    if (error) throw error;
+    if (error) throw new Error(error.message || 'Failed to delete transaction');
   }
 
   async getInventorySummary(userId: string): Promise<InventoryItem[]> {

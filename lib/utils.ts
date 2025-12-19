@@ -2,9 +2,10 @@
 export const safeString = (val: any): string => {
   if (val === null || val === undefined) return '';
   
+  // Recursively process if it's a string to catch nested stringification issues
   if (typeof val === 'string') {
-    // Aggressively clean up any accidental object stringifications
-    if (val.includes('[object Object]')) return '';
+    const trimmed = val.trim();
+    if (trimmed === '[object Object]' || val.includes('[object Object]')) return '';
     return val;
   }
 
@@ -12,27 +13,44 @@ export const safeString = (val: any): string => {
   if (typeof val === 'boolean') return String(val);
   
   if (val instanceof Date) return val.toISOString();
-  if (val instanceof Error) return val.message;
+  if (val instanceof Error) return safeString(val.message);
 
-  // If it's an object/array, try to process it, but never return [object Object]
+  // If it's an object/array, try to extract meaningful text
   if (typeof val === 'object') {
     try {
-      // Prioritize common error properties if it looks like an error object
-      if (val.message && typeof val.message === 'string') return val.message;
-      if (val.error && typeof val.error === 'string') return val.error;
+      // Prioritize explicit error/message properties common in Supabase/Postgres/Auth errors
+      if (val.message) return safeString(val.message);
+      if (val.error_description) return safeString(val.error_description);
+      if (val.msg) return safeString(val.msg);
+      if (val.description) return safeString(val.description);
       
-      // Check for name property often found in objects
-      if (val.name && typeof val.name === 'string' && val.name !== 'Object') return val.name;
+      // If no message but has code (often Supabase errors)
+      if (val.code) return `Error Code: ${safeString(val.code)} ${val.details ? '- ' + safeString(val.details) : ''}`;
+      
+      // Check for name property often found in entities
+      if (val.name && val.name !== 'Object' && val.name !== 'Error') return safeString(val.name);
+      
+      // If it's an array, join it
+      if (Array.isArray(val)) {
+        return val.map(safeString).filter(Boolean).join(', ');
+      }
 
-      // Check if it has a custom toString that isn't the default Object one
+      // Last resort: simple string conversion, but check for default object string
       const str = String(val);
-      if (str !== '[object Object]') return str;
+      if (str === '[object Object]' || str.includes('[object Object]')) return '';
+      return str;
     } catch (e) {
       return '';
     }
   }
 
-  return '';
+  // Fallback for symbols or other types
+  try {
+    const finalStr = String(val);
+    return finalStr.includes('[object Object]') ? '' : finalStr;
+  } catch (e) {
+    return '';
+  }
 };
 
 export const safeNum = (val: any): number => {

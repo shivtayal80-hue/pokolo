@@ -92,7 +92,7 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
       onRefresh();
     } catch (error) {
       console.error(error);
-      alert("Failed to process transaction.");
+      alert("Failed to process transaction: " + safeString(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -104,7 +104,7 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
         await dbService.markTransactionAsPaid(txId, userId);
         onRefresh();
       } catch (err) {
-        alert("Failed to update status");
+        alert("Failed to update status: " + safeString(err));
       }
     }
   };
@@ -120,7 +120,7 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
       setFormData(prev => ({ ...prev, productId: addedProduct.id }));
     } catch (err) {
       console.error(err);
-      alert("Failed to add product");
+      alert("Failed to add product: " + safeString(err));
     } finally {
       setIsProductSubmitting(false);
     }
@@ -132,7 +132,7 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
         await dbService.deleteTransaction(id, userId);
         onRefresh();
       } catch (err) {
-        alert("Cannot delete this transaction.");
+        alert("Cannot delete this transaction: " + safeString(err));
       }
     }
   };
@@ -164,88 +164,152 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
     setPdfGenerating(tx.id);
     try {
       const doc = new jsPDF();
-      doc.setFillColor(17, 24, 39); 
-      doc.rect(0, 0, 210, 40, 'F');
       
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(20);
+      // -- Configuration --
+      const brandColor = "#0ea5e9"; // Sky 500
+      const secondaryColor = "#64748b"; // Slate 500
+      const darkColor = "#0f172a"; // Slate 900
+      const lightGray = "#f8fafc"; // Slate 50
+      
+      // -- Header Section --
+      // Top colored accent bar
+      doc.setFillColor(brandColor);
+      doc.rect(0, 0, 210, 3, 'F');
+
+      // Company Logo / Name
       doc.setFont("helvetica", "bold");
-      doc.text("FINTRACK", 15, 26);
+      doc.setFontSize(22);
+      doc.setTextColor(darkColor);
+      doc.text("FINTRACK", 15, 25);
+
+      // Doc Type Label
+      doc.setFontSize(28);
+      doc.setTextColor(226, 232, 240); // Very light gray for subtle bg text effect
+      const docType = tx.type === 'sale' ? "INVOICE" : "PURCHASE";
+      doc.text(docType, 195, 28, { align: 'right' });
+
+      // -- Meta Info Section (Right Aligned) --
+      doc.setFontSize(10);
+      doc.setTextColor(secondaryColor);
       
-      doc.setFontSize(20);
-      const title = tx.type === 'sale' ? "INVOICE" : "PURCHASE ORDER";
-      doc.text(title, 195, 26, { align: 'right' });
+      const metaStartX = 140;
+      const metaStartY = 45;
+      const lineHeight = 6;
 
-      doc.setTextColor(0, 0, 0);
-      doc.setFillColor(249, 250, 251); 
-      doc.roundedRect(15, 50, 180, 25, 2, 2, 'FD');
+      // Labels
+      doc.setFont("helvetica", "normal");
+      doc.text("Reference ID:", metaStartX, metaStartY);
+      doc.text("Date:", metaStartX, metaStartY + lineHeight);
+      doc.text("Status:", metaStartX, metaStartY + (lineHeight * 2));
 
+      // Values
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(darkColor);
+      doc.text(`#${safeString(tx.id).substring(0, 8).toUpperCase()}`, 195, metaStartY, { align: 'right' });
+      doc.text(new Date(tx.date).toLocaleDateString(), 195, metaStartY + lineHeight, { align: 'right' });
+      
+      const status = safeString(tx.paymentStatus).toUpperCase();
+      doc.setTextColor(status === 'PAID' ? '#10b981' : (status === 'OVERDUE' ? '#ef4444' : '#f59e0b'));
+      doc.text(status, 195, metaStartY + (lineHeight * 2), { align: 'right' });
+
+      // -- Bill To / From Section --
+      doc.setTextColor(secondaryColor);
+      doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
-      doc.setTextColor(107, 114, 128); 
-      doc.text("TRANSACTION ID", 25, 60);
-      doc.text("DATE", 85, 60);
-      doc.text(tx.type === 'sale' ? "BILL TO" : "SUPPLIER", 145, 60);
+      doc.text(tx.type === 'sale' ? "BILL TO:" : "SUPPLIER:", 15, 45);
 
-      doc.setFontSize(11);
-      doc.setTextColor(17, 24, 39); 
+      doc.setFontSize(12);
+      doc.setTextColor(darkColor);
       doc.setFont("helvetica", "bold");
-      doc.text(safeString(tx.id), 25, 68);
-      doc.text(new Date(tx.date).toLocaleDateString(), 85, 68);
-      doc.text(safeString(tx.partyName), 145, 68);
+      doc.text(safeString(tx.partyName), 15, 52);
 
+      // -- Table Section --
       const netQuantity = (Number(tx.quantity) || 0) - (Number(tx.deduction) || 0);
-
-      const tableColumn = ["Item Description", "Qty Details", "Unit Price", "Total"];
       
-      let qtyDetails = `${netQuantity} ${safeString(tx.unit)}`;
+      // Construct description with details
+      let desc = safeString(tx.productName);
       if (tx.deduction && tx.deduction > 0) {
-        const reason = tx.deductionReason ? ` (${safeString(tx.deductionReason)})` : '';
-        qtyDetails = `Gross: ${Number(tx.quantity)}\nDed: -${Number(tx.deduction)}${reason}\nNet: ${netQuantity} ${safeString(tx.unit)}`;
+        const reason = tx.deductionReason ? `(${safeString(tx.deductionReason)})` : '';
+        desc += `\n • Gross: ${Number(tx.quantity)} ${safeString(tx.unit)}`;
+        desc += `\n • Deduction: -${Number(tx.deduction)} ${safeString(tx.unit)} ${reason}`;
       }
 
-      const tableRows = [
+      const tableBody = [
         [
-          safeString(tx.productName),
-          qtyDetails,
-          `INR ${Number(tx.pricePerUnit).toLocaleString()}`,
-          `INR ${Number(tx.totalValue).toLocaleString()}`
+          desc,
+          `${netQuantity} ${safeString(tx.unit)}`,
+          `${Number(tx.pricePerUnit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+          `${Number(tx.totalValue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
         ]
       ];
 
       // @ts-ignore
       autoTable(doc, {
-        startY: 85,
-        head: [tableColumn],
-        body: tableRows,
-        theme: 'grid',
-        headStyles: { 
-          fillColor: [255, 255, 255],
-          textColor: [17, 24, 39],
-          lineWidth: 0.1,
-          lineColor: [229, 231, 235],
+        startY: 75,
+        head: [['DESCRIPTION', 'QTY', 'UNIT PRICE', 'AMOUNT']],
+        body: tableBody,
+        theme: 'plain',
+        headStyles: {
+          fillColor: lightGray,
+          textColor: secondaryColor,
           fontStyle: 'bold',
-          halign: 'left'
+          fontSize: 9,
+          halign: 'left',
+          cellPadding: 4
         },
-        styles: {
+        columnStyles: {
+          0: { cellWidth: 90 }, // Description
+          1: { cellWidth: 30, halign: 'right' }, // Qty
+          2: { cellWidth: 35, halign: 'right' }, // Price
+          3: { cellWidth: 35, halign: 'right', fontStyle: 'bold' } // Total
+        },
+        bodyStyles: {
+          textColor: darkColor,
           fontSize: 10,
-          cellPadding: 8,
-          textColor: [55, 65, 81],
-          lineWidth: 0.1,
-          lineColor: [229, 231, 235]
+          cellPadding: 6,
+          valign: 'top',
+          lineColor: 240 // Very light border
         },
-        foot: [['', '', 'Grand Total', `INR ${Number(tx.totalValue).toLocaleString()}`]],
-        footStyles: { 
-          fillColor: [249, 250, 251], 
-          textColor: [17, 24, 39], 
-          fontStyle: 'bold',
-          halign: 'right'
+        didParseCell: function(data: any) {
+          // Add bottom border to body rows
+          if (data.section === 'body') {
+            data.cell.styles.borderBottom = { width: 0.1, color: [226, 232, 240] };
+          }
         }
       });
+
+      // -- Totals Section --
+      // @ts-ignore
+      const finalY = doc.lastAutoTable.finalY + 10;
+      const rightMargin = 195;
+      
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(secondaryColor);
+      doc.text("Total Amount", rightMargin - 40, finalY);
+
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(darkColor);
+      doc.text(`INR ${Number(tx.totalValue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, rightMargin, finalY, { align: 'right' });
+
+      // -- Footer --
+      const pageHeight = doc.internal.pageSize.height;
+      doc.setDrawColor(226, 232, 240); // gray-200
+      doc.line(15, pageHeight - 25, 195, pageHeight - 25);
+      
+      doc.setFontSize(9);
+      doc.setTextColor(secondaryColor);
+      doc.setFont("helvetica", "normal");
+      doc.text("Thank you for your business.", 105, pageHeight - 15, { align: 'center' });
+      doc.setFontSize(8);
+      doc.setTextColor("#94a3b8");
+      doc.text("This is a computer generated invoice.", 105, pageHeight - 10, { align: 'center' });
 
       doc.save(`${safeString(tx.type)}_invoice_${safeString(tx.id)}.pdf`);
     } catch (err) {
       console.error(err);
-      alert("Failed to generate PDF.");
+      alert("Failed to generate PDF: " + safeString(err));
     } finally {
       setPdfGenerating(null);
     }

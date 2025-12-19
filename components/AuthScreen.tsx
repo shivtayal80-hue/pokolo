@@ -32,10 +32,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
           // --- LOGIN ---
           const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password: cleanPassword });
           if (error) {
-            if (error.message.includes('Email not confirmed')) {
+            const errorMsg = safeString(error.message);
+            if (errorMsg.includes('Email not confirmed')) {
               throw new Error("Please check your email inbox to confirm your account before logging in.");
             }
-            if (error.message.includes('Invalid login')) {
+            if (errorMsg.includes('Invalid login')) {
                throw new Error("Invalid email or password.");
             }
             throw error;
@@ -44,7 +45,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
           // --- SIGN UP ---
           const { data, error } = await supabase.auth.signUp({ email: cleanEmail, password: cleanPassword });
           if (error) {
-            if (error.message.includes('already registered')) {
+            const errorMsg = safeString(error.message);
+            if (errorMsg.includes('already registered')) {
               setIsLogin(true);
               throw new Error("This email is already registered. Please sign in.");
             }
@@ -71,12 +73,22 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
     } catch (err: any) {
       // Robust error extraction to prevent [object Object]
       let msg = 'Authentication failed';
-      if (typeof err === 'string') msg = err;
-      else if (err instanceof Error) msg = err.message;
-      else if (err?.message) msg = err.message;
-      else if (err?.error_description) msg = err.error_description;
       
-      setError(safeString(msg));
+      if (typeof err === 'string') {
+        msg = err;
+      } else if (err && typeof err === 'object') {
+        // Try to find the most relevant message in nested structures
+        if (err.message) msg = err.message;
+        else if (err.error_description) msg = err.error_description;
+        else if (err.error && typeof err.error === 'string') msg = err.error;
+        else if (err.error && err.error.message) msg = err.error.message;
+        else if (err.toString && typeof err.toString === 'function' && err.toString() !== '[object Object]') {
+          msg = err.toString();
+        }
+      }
+      
+      const cleanedMsg = safeString(msg);
+      setError(cleanedMsg || 'An unknown error occurred.');
     } finally {
       setLoading(false);
     }
