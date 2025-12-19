@@ -78,6 +78,10 @@ class SupabaseService {
         quantity: Number(t.quantity) || 0,
         deduction: Number(t.deduction || 0),
         deductionReason: t.deduction_reason ? safeString(t.deduction_reason) : undefined,
+        
+        extraAmount: Number(t.extra_amount || 0),
+        extraReason: t.extra_reason ? safeString(t.extra_reason) : undefined,
+
         unit: safeString(t.unit) || 'units',
         pricePerUnit: Number(t.price_per_unit) || 0,
         totalValue: Number(t.total_value) || 0,
@@ -100,8 +104,10 @@ class SupabaseService {
 
     const grossQty = Number(tx.quantity) || 0;
     const deductionAmt = Number(tx.deduction) || 0;
+    const extraAmount = Number(tx.extraAmount) || 0;
+    
     const netQuantity = grossQty - deductionAmt;
-    const totalValue = netQuantity * (Number(tx.pricePerUnit) || 0);
+    const totalValue = (netQuantity * (Number(tx.pricePerUnit) || 0)) + extraAmount;
 
     let dueDate: string | undefined;
     let paymentStatus = 'paid';
@@ -124,6 +130,10 @@ class SupabaseService {
       quantity: grossQty,
       deduction: deductionAmt, 
       deduction_reason: tx.deductionReason || null,
+      
+      extra_amount: extraAmount,
+      extra_reason: tx.extraReason || null,
+
       unit: product.unit,
       price_per_unit: tx.pricePerUnit,
       total_value: totalValue,
@@ -150,6 +160,10 @@ class SupabaseService {
       quantity: Number(data.quantity),
       deduction: Number(data.deduction),
       deductionReason: data.deduction_reason ? safeString(data.deduction_reason) : undefined,
+      
+      extraAmount: Number(data.extra_amount),
+      extraReason: data.extra_reason ? safeString(data.extra_reason) : undefined,
+
       unit: safeString(data.unit),
       pricePerUnit: Number(data.price_per_unit),
       totalValue: Number(data.total_value),
@@ -186,6 +200,10 @@ class SupabaseService {
         if (tx.type === 'purchase') {
           stock += netQty;
           totalPurchased += netQty;
+          // Calculate cost based on product part of transaction only, 
+          // generally we want Average Cost of Goods to reflect price per unit + allocated extras?
+          // For simplicity, we keep avgCost as pure material cost per unit (pricePerUnit).
+          // Extra amounts are usually overheads.
           totalCost += (netQty * (Number(tx.pricePerUnit) || 0));
         } else {
           stock -= netQty;

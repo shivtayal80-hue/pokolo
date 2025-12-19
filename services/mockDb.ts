@@ -19,9 +19,11 @@ const INITIAL_TRANSACTIONS: Transaction[] = [
     quantity: 500,
     deduction: 10,
     deductionReason: 'Moisture Loss',
+    extraAmount: 250,
+    extraReason: 'Shipping',
     unit: 'kg',
     pricePerUnit: 12.50,
-    totalValue: 6125, // (500-10) * 12.50
+    totalValue: 6375, // (500-10) * 12.50 + 250
     date: new Date(Date.now() - 86400000 * 5).toISOString(),
     paymentType: 'credit',
     creditPeriod: 30,
@@ -175,6 +177,10 @@ class MockDBService {
         quantity: Number(t.quantity) || 0,
         deduction: Number(t.deduction) || 0,
         deductionReason: t.deductionReason ? safeString(t.deductionReason) : undefined,
+        
+        extraAmount: Number(t.extraAmount) || 0,
+        extraReason: t.extraReason ? safeString(t.extraReason) : undefined,
+
         unit: safeString(t.unit) || 'units',
         pricePerUnit: Number(t.pricePerUnit) || 0,
         totalValue: Number(t.totalValue) || 0,
@@ -196,7 +202,8 @@ class MockDBService {
     if (!product) throw new Error("Product not found");
 
     const netQuantity = (Number(tx.quantity) || 0) - (Number(tx.deduction) || 0);
-    const totalValue = netQuantity * (Number(tx.pricePerUnit) || 0);
+    const extraAmount = Number(tx.extraAmount) || 0;
+    const totalValue = (netQuantity * (Number(tx.pricePerUnit) || 0)) + extraAmount;
 
     let dueDate: string | undefined;
     let paymentStatus: 'paid' | 'pending' | 'overdue' = 'paid';
@@ -219,6 +226,10 @@ class MockDBService {
       quantity: Number(tx.quantity),
       deduction: Number(tx.deduction),
       deductionReason: tx.deductionReason ? safeString(tx.deductionReason) : undefined,
+      
+      extraAmount,
+      extraReason: tx.extraReason ? safeString(tx.extraReason) : undefined,
+
       unit: safeString(product.unit) || 'units',
       pricePerUnit: Number(tx.pricePerUnit),
       totalValue,

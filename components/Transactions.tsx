@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowUpRight, ArrowDownLeft, FileText, Trash2, Download, Plus, Check, Clock, AlertTriangle, Scale } from 'lucide-react';
+import { ArrowUpRight, ArrowDownLeft, FileText, Trash2, Download, Plus, Check, Clock, AlertTriangle, Scale, Coins } from 'lucide-react';
 import { Card, Button } from './ui/LayoutComponents';
 import { Modal } from './ui/Modal';
 import { Product, Transaction, UserRole, InventoryItem } from '../types';
@@ -29,6 +29,8 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
     quantity: '',
     deduction: '0',
     deductionReason: '',
+    extraAmount: '',
+    extraReason: '',
     pricePerUnit: '',
     date: new Date().toISOString().split('T')[0],
     paymentType: 'cash' as 'cash' | 'credit',
@@ -51,6 +53,7 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
   const grossQty = parseFloat(formData.quantity) || 0;
   const deductionAmt = parseFloat(formData.deduction) || 0;
   const netQty = Math.max(0, grossQty - deductionAmt);
+  const extraAmt = parseFloat(formData.extraAmount) || 0;
 
   const handleTransaction = async (e: React.FormEvent, type: 'purchase' | 'sale') => {
     e.preventDefault();
@@ -71,6 +74,10 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
         quantity: grossQty,
         deduction: type === 'purchase' ? deductionAmt : 0,
         deductionReason: type === 'purchase' && deductionAmt > 0 ? safeString(formData.deductionReason || 'Packaging').trim() : undefined,
+        
+        extraAmount: extraAmt,
+        extraReason: extraAmt > 0 ? safeString(formData.extraReason || 'Misc Fees').trim() : undefined,
+
         pricePerUnit: parseFloat(formData.pricePerUnit),
         date: formData.date,
         paymentType: formData.paymentType,
@@ -83,6 +90,8 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
         quantity: '', 
         deduction: '0',
         deductionReason: '',
+        extraAmount: '',
+        extraReason: '',
         pricePerUnit: '',
         date: new Date().toISOString().split('T')[0],
         paymentType: 'cash',
@@ -150,6 +159,8 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
       'Net Qty': Number(t.quantity) - Number(t.deduction || 0),
       Unit: safeString(t.unit),
       'Price/Unit': Number(t.pricePerUnit),
+      'Extra Charges': Number(t.extraAmount || 0),
+      'Extra Reason': safeString(t.extraReason || ''),
       'Total Value': Number(t.totalValue),
       'Payment': safeString(t.paymentType).toUpperCase(),
       'Status': safeString(t.paymentStatus).toUpperCase()
@@ -165,69 +176,91 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
     try {
       const doc = new jsPDF();
       
-      // -- Configuration --
-      const brandColor = "#0ea5e9"; // Sky 500
-      const secondaryColor = "#64748b"; // Slate 500
-      const darkColor = "#0f172a"; // Slate 900
-      const lightGray = "#f8fafc"; // Slate 50
-      
-      // -- Header Section --
-      // Top colored accent bar
-      doc.setFillColor(brandColor);
-      doc.rect(0, 0, 210, 3, 'F');
+      // Colors
+      const brandColor = [14, 165, 233] as [number, number, number]; // Sky 500
+      const darkColor = [15, 23, 42] as [number, number, number]; // Slate 900
+      const grayColor = [100, 116, 139] as [number, number, number]; // Slate 500
+      const lightGray = [248, 250, 252] as [number, number, number]; // Slate 50
 
-      // Company Logo / Name
+      // -- Header Background --
+      doc.setFillColor(...lightGray);
+      doc.rect(0, 0, 210, 40, 'F');
+
+      // -- Brand Name --
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(22);
-      doc.setTextColor(darkColor);
-      doc.text("FINTRACK", 15, 25);
-
-      // Doc Type Label
-      doc.setFontSize(28);
-      doc.setTextColor(226, 232, 240); // Very light gray for subtle bg text effect
-      const docType = tx.type === 'sale' ? "INVOICE" : "PURCHASE";
-      doc.text(docType, 195, 28, { align: 'right' });
-
-      // -- Meta Info Section (Right Aligned) --
+      doc.setFontSize(24);
+      doc.setTextColor(...darkColor);
+      doc.text("FINTRACK", 20, 25);
+      
       doc.setFontSize(10);
-      doc.setTextColor(secondaryColor);
-      
-      const metaStartX = 140;
-      const metaStartY = 45;
-      const lineHeight = 6;
-
-      // Labels
+      doc.setTextColor(...grayColor);
       doc.setFont("helvetica", "normal");
-      doc.text("Reference ID:", metaStartX, metaStartY);
-      doc.text("Date:", metaStartX, metaStartY + lineHeight);
-      doc.text("Status:", metaStartX, metaStartY + (lineHeight * 2));
+      doc.text("Enterprise Resource Planning", 20, 32);
 
-      // Values
+      // -- Doc Type --
+      doc.setFontSize(30);
+      doc.setTextColor(226, 232, 240); // Subtle background text color
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(darkColor);
-      doc.text(`#${safeString(tx.id).substring(0, 8).toUpperCase()}`, 195, metaStartY, { align: 'right' });
-      doc.text(new Date(tx.date).toLocaleDateString(), 195, metaStartY + lineHeight, { align: 'right' });
-      
-      const status = safeString(tx.paymentStatus).toUpperCase();
-      doc.setTextColor(status === 'PAID' ? '#10b981' : (status === 'OVERDUE' ? '#ef4444' : '#f59e0b'));
-      doc.text(status, 195, metaStartY + (lineHeight * 2), { align: 'right' });
+      const docLabel = tx.type === 'sale' ? "INVOICE" : "PURCHASE";
+      doc.text(docLabel, 190, 28, { align: 'right' });
 
-      // -- Bill To / From Section --
-      doc.setTextColor(secondaryColor);
-      doc.setFont("helvetica", "normal");
+      // -- Status Stamp --
+      if (tx.paymentStatus === 'paid') {
+          doc.setDrawColor(16, 185, 129); // Emerald 500
+          doc.setTextColor(16, 185, 129);
+          doc.setLineWidth(0.5);
+          doc.roundedRect(160, 35, 30, 8, 2, 2, 'D');
+          doc.setFontSize(10);
+          doc.setFont("helvetica", "bold");
+          doc.text("PAID", 175, 40, { align: 'center' });
+      } else if (tx.paymentStatus === 'overdue') {
+          doc.setDrawColor(239, 68, 68); // Red 500
+          doc.setTextColor(239, 68, 68);
+          doc.setLineWidth(0.5);
+          doc.roundedRect(160, 35, 30, 8, 2, 2, 'D');
+          doc.setFontSize(10);
+          doc.setFont("helvetica", "bold");
+          doc.text("OVERDUE", 175, 40, { align: 'center' });
+      }
+
+      // -- Info Grid --
+      const startY = 60;
+      
+      // Left Side: Party Details
       doc.setFontSize(9);
-      doc.text(tx.type === 'sale' ? "BILL TO:" : "SUPPLIER:", 15, 45);
-
-      doc.setFontSize(12);
-      doc.setTextColor(darkColor);
+      doc.setTextColor(...grayColor);
       doc.setFont("helvetica", "bold");
-      doc.text(safeString(tx.partyName), 15, 52);
+      doc.text(tx.type === 'sale' ? "BILL TO" : "SUPPLIER", 20, startY);
+      
+      doc.setFontSize(14);
+      doc.setTextColor(...darkColor);
+      doc.setFont("helvetica", "bold");
+      doc.text(safeString(tx.partyName), 20, startY + 8);
+      
+      // Right Side: Meta Details
+      const rightColLabelX = 140;
+      const rightColValueX = 190;
+      
+      doc.setFontSize(9);
+      doc.setTextColor(...grayColor);
+      doc.setFont("helvetica", "normal");
+      
+      doc.text("Invoice #", rightColLabelX, startY);
+      doc.text("Date", rightColLabelX, startY + 6);
+      if (tx.dueDate) doc.text("Due Date", rightColLabelX, startY + 12);
+      
+      doc.setTextColor(...darkColor);
+      doc.setFont("helvetica", "bold");
+      doc.text(`#${safeString(tx.id).substring(0, 8).toUpperCase()}`, rightColValueX, startY, { align: 'right' });
+      doc.text(new Date(tx.date).toLocaleDateString(), rightColValueX, startY + 6, { align: 'right' });
+      if (tx.dueDate) doc.text(new Date(tx.dueDate).toLocaleDateString(), rightColValueX, startY + 12, { align: 'right' });
 
       // -- Table Section --
       const netQuantity = (Number(tx.quantity) || 0) - (Number(tx.deduction) || 0);
+      const subTotal = netQuantity * Number(tx.pricePerUnit);
       
-      // Construct description with details
       let desc = safeString(tx.productName);
+      // Detailed description
       if (tx.deduction && tx.deduction > 0) {
         const reason = tx.deductionReason ? `(${safeString(tx.deductionReason)})` : '';
         desc += `\n • Gross: ${Number(tx.quantity)} ${safeString(tx.unit)}`;
@@ -239,23 +272,33 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
           desc,
           `${netQuantity} ${safeString(tx.unit)}`,
           `${Number(tx.pricePerUnit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-          `${Number(tx.totalValue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+          `${subTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
         ]
       ];
 
+      if (tx.extraAmount && tx.extraAmount > 0) {
+        tableBody.push([
+          `Add. Charge: ${tx.extraReason || 'Miscellaneous'}`,
+          '1',
+          `${Number(tx.extraAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+          `${Number(tx.extraAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+        ]);
+      }
+
       // @ts-ignore
       autoTable(doc, {
-        startY: 75,
+        startY: startY + 25,
         head: [['DESCRIPTION', 'QTY', 'UNIT PRICE', 'AMOUNT']],
         body: tableBody,
-        theme: 'plain',
+        theme: 'grid', // 'grid' theme gives borders, we can customize
         headStyles: {
-          fillColor: lightGray,
-          textColor: secondaryColor,
+          fillColor: [...darkColor],
+          textColor: 255,
           fontStyle: 'bold',
           fontSize: 9,
           halign: 'left',
-          cellPadding: 4
+          cellPadding: 4,
+          lineWidth: 0
         },
         columnStyles: {
           0: { cellWidth: 90 }, // Description
@@ -264,47 +307,46 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
           3: { cellWidth: 35, halign: 'right', fontStyle: 'bold' } // Total
         },
         bodyStyles: {
-          textColor: darkColor,
+          textColor: [...darkColor],
           fontSize: 10,
           cellPadding: 6,
           valign: 'top',
-          lineColor: 240 // Very light border
+          lineColor: 230,
+          lineWidth: 0.1
         },
-        didParseCell: function(data: any) {
-          // Add bottom border to body rows
-          if (data.section === 'body') {
-            data.cell.styles.borderBottom = { width: 0.1, color: [226, 232, 240] };
-          }
-        }
+        styles: {
+            cellPadding: 5,
+            fontSize: 10,
+        },
       });
 
-      // -- Totals Section --
+      // -- Totals --
       // @ts-ignore
-      const finalY = doc.lastAutoTable.finalY + 10;
-      const rightMargin = 195;
+      const finalY = doc.lastAutoTable.finalY + 15;
+      
+      // Total Box
+      doc.setFillColor(...lightGray);
+      doc.roundedRect(130, finalY - 5, 70, 20, 2, 2, 'F');
       
       doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
-      doc.setTextColor(secondaryColor);
-      doc.text("Total Amount", rightMargin - 40, finalY);
+      doc.setTextColor(...grayColor);
+      doc.text("Total Amount", 135, finalY + 7);
 
       doc.setFontSize(14);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(darkColor);
-      doc.text(`INR ${Number(tx.totalValue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, rightMargin, finalY, { align: 'right' });
+      doc.setTextColor(...darkColor);
+      doc.text(`INR ${Number(tx.totalValue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 195, finalY + 7, { align: 'right' });
 
       // -- Footer --
       const pageHeight = doc.internal.pageSize.height;
-      doc.setDrawColor(226, 232, 240); // gray-200
-      doc.line(15, pageHeight - 25, 195, pageHeight - 25);
+      doc.setDrawColor(226, 232, 240);
+      doc.line(20, pageHeight - 20, 190, pageHeight - 20);
       
-      doc.setFontSize(9);
-      doc.setTextColor(secondaryColor);
-      doc.setFont("helvetica", "normal");
-      doc.text("Thank you for your business.", 105, pageHeight - 15, { align: 'center' });
       doc.setFontSize(8);
-      doc.setTextColor("#94a3b8");
-      doc.text("This is a computer generated invoice.", 105, pageHeight - 10, { align: 'center' });
+      doc.setTextColor(...grayColor);
+      doc.text("Thank you for your business.", 20, pageHeight - 12);
+      doc.text("Generated by Fintrack ERP", 190, pageHeight - 12, { align: 'right' });
 
       doc.save(`${safeString(tx.type)}_invoice_${safeString(tx.id)}.pdf`);
     } catch (err) {
@@ -475,26 +517,61 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
               )}
             </div>
 
-            <div className={`${type === 'purchase' ? 'sm:col-span-2' : ''}`}>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {type === 'purchase' ? 'Cost Price' : 'Selling Price'}
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <span className="text-gray-400 text-sm">₹</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {type === 'purchase' ? 'Cost Price' : 'Selling Price'} <span className="text-xs text-gray-400 font-normal">(per {safeString(currentUnit)})</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <span className="text-gray-400 text-sm">₹</span>
+                  </div>
+                  <input 
+                    required
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5 pl-7"
+                    value={formData.pricePerUnit}
+                    onChange={e => setFormData({...formData, pricePerUnit: e.target.value})}
+                    placeholder="0.00"
+                  />
                 </div>
-                <input 
-                  required
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5 pl-7"
-                  value={formData.pricePerUnit}
-                  onChange={e => setFormData({...formData, pricePerUnit: e.target.value})}
-                  placeholder="0.00"
-                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Extra / Misc Charges <span className="text-xs text-gray-400 font-normal">(Shipping, Tax)</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <span className="text-gray-400 text-sm">₹</span>
+                  </div>
+                  <input 
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5 pl-7"
+                    value={formData.extraAmount}
+                    onChange={e => setFormData({...formData, extraAmount: e.target.value})}
+                    placeholder="0.00"
+                  />
+                </div>
               </div>
             </div>
+
+            {parseFloat(formData.extraAmount) > 0 && (
+               <div className="animate-in fade-in slide-in-from-top-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Reason for Extra Charges</label>
+                <input 
+                  type="text"
+                  className="block w-full rounded-xl border-gray-200 shadow-sm focus:border-gray-300 focus:ring-0 text-sm py-2.5"
+                  value={formData.extraReason}
+                  onChange={e => setFormData({...formData, extraReason: e.target.value})}
+                  placeholder="e.g. Shipping Fee, Loading Charges"
+                />
+              </div>
+            )}
           </div>
 
           {type === 'purchase' && grossQty > 0 && (
@@ -559,6 +636,7 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
               <tbody className="bg-white">
                 {transactions.map((tx) => {
                   const net = (Number(tx.quantity) || 0) - (Number(tx.deduction) || 0);
+                  const hasExtras = tx.extraAmount && tx.extraAmount > 0;
                   return (
                     <tr key={tx.id} className="group hover:bg-gray-50/50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -573,14 +651,22 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, produc
                       <td className="px-6 py-4 text-sm text-gray-900">
                         <div className="font-medium">{safeString(tx.productName)}</div>
                         <div className="text-gray-400 text-xs mt-0.5">{safeString(tx.partyName)}</div>
-                        {tx.deduction && tx.deduction > 0 ? (
-                          <div className="text-[10px] text-amber-600 font-medium mt-1 flex items-center gap-1">
-                            <Scale size={10} /> 
-                            <span>Gross: {Number(tx.quantity)}</span>
-                            <span>| Ded: -{Number(tx.deduction)}</span>
-                            {tx.deductionReason && <span className="text-amber-700 font-bold">({safeString(tx.deductionReason)})</span>}
-                          </div>
-                        ) : null}
+                        <div className="flex flex-wrap gap-x-2 gap-y-1 mt-1">
+                          {tx.deduction && tx.deduction > 0 ? (
+                            <div className="text-[10px] text-amber-600 font-medium flex items-center gap-1 bg-amber-50 px-1.5 py-0.5 rounded-md">
+                              <Scale size={10} /> 
+                              <span>Ded: -{Number(tx.deduction)}</span>
+                              {tx.deductionReason && <span className="font-bold">({safeString(tx.deductionReason)})</span>}
+                            </div>
+                          ) : null}
+                          {hasExtras ? (
+                             <div className="text-[10px] text-purple-600 font-medium flex items-center gap-1 bg-purple-50 px-1.5 py-0.5 rounded-md">
+                              <Coins size={10} />
+                              <span>Extra: +{Number(tx.extraAmount)}</span>
+                              {tx.extraReason && <span className="font-bold">({safeString(tx.extraReason)})</span>}
+                             </div>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-right font-medium">
                         {net.toLocaleString()} <span className="text-gray-400 font-normal">{safeString(tx.unit)}</span>

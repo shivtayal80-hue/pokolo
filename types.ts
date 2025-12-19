@@ -29,6 +29,11 @@ export interface Transaction {
   quantity: number; // Gross quantity
   deduction?: number; // Optional deduction (e.g., packaging)
   deductionReason?: string; // Reason/Name for the deduction
+  
+  // New fields for additional monetary charges
+  extraAmount?: number; 
+  extraReason?: string;
+
   unit: string; // Snapshot of unit at time of transaction
   pricePerUnit: number; 
   totalValue: number;
