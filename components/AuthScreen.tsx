@@ -40,7 +40,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
             }
             throw error;
           }
-          // Successful login is handled by the onAuthStateChange listener in App.tsx
         } else {
           // --- SIGN UP ---
           const { data, error } = await supabase.auth.signUp({ email: cleanEmail, password: cleanPassword });
@@ -53,17 +52,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
           }
           
           if (data.user && !data.session) {
-             // User created but waiting for email confirmation
              setMessage("Account created successfully! We've sent a confirmation link to your email. Please verify it to log in.");
              setIsLogin(true);
           } else if (data.session) {
-             // Auto-logged in (rare configuration)
              setMessage("Account created! Logging you in...");
           }
         }
       } else {
         // --- OFFLINE MOCK MODE ---
-        // Fallback for local testing if server disconnects (unlikely in prod)
         if (isLogin) {
           const user = await dbService.login(cleanEmail, cleanPassword);
           onLogin(user);
@@ -73,7 +69,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
         }
       }
     } catch (err: any) {
-      setError(err.message || 'Authentication failed');
+      // Robust error extraction to prevent [object Object]
+      let msg = 'Authentication failed';
+      if (typeof err === 'string') msg = err;
+      else if (err instanceof Error) msg = err.message;
+      else if (err?.message) msg = err.message;
+      else if (err?.error_description) msg = err.error_description;
+      
+      setError(safeString(msg));
     } finally {
       setLoading(false);
     }
@@ -81,13 +84,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center p-4 relative overflow-hidden bg-gray-50">
-      
-      {/* Subtle Background Elements */}
       <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-blue-50 to-transparent"></div>
       
       <div className="relative z-10 w-full max-w-md">
-        
-        {/* Login Card */}
         <div className="bg-white border border-gray-100 shadow-xl shadow-gray-200/50 rounded-3xl overflow-hidden mt-10">
           
           <div className="p-8 text-center bg-white">
@@ -101,7 +100,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
           </div>
 
           <div className="px-8 pb-10">
-            {/* Toggle Switch */}
             <div className="flex bg-gray-100 rounded-xl p-1 mb-8">
               <button
                 onClick={() => { setIsLogin(true); setError(''); setMessage(''); }}

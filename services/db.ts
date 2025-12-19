@@ -26,10 +26,10 @@ class SupabaseService {
     return (data || []).map((p: any) => ({ 
       id: safeString(p.id), 
       userId: safeString(p.user_id), 
-      name: safeString(p.name || 'Unknown Product'), 
-      category: safeString(p.category || 'General'), 
+      name: safeString(p.name) || 'Unknown Product', 
+      category: safeString(p.category) || 'General', 
       minStockLevel: Number(p.min_stock_level) || 0, 
-      unit: safeString(p.unit || 'units') 
+      unit: safeString(p.unit) || 'units' 
     }));
   }
 
@@ -67,13 +67,13 @@ class SupabaseService {
         id: safeString(t.id),
         userId: safeString(t.user_id),
         productId: safeString(t.product_id),
-        productName: safeString(t.product_name || 'Item'),
+        productName: safeString(t.product_name) || 'Item',
         type: (t.type === 'sale' ? 'sale' : 'purchase') as 'purchase' | 'sale',
-        partyName: safeString(t.party_name || 'N/A'),
+        partyName: safeString(t.party_name) || 'N/A',
         quantity: Number(t.quantity) || 0,
         deduction: t.deduction ? Number(t.deduction) : 0,
         deductionReason: t.deduction_reason ? safeString(t.deduction_reason) : undefined,
-        unit: safeString(t.unit || 'units'),
+        unit: safeString(t.unit) || 'units',
         pricePerUnit: Number(t.price_per_unit) || 0,
         totalValue: Number(t.total_value) || 0,
         date: safeString(t.date),

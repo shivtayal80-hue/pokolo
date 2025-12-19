@@ -54,12 +54,12 @@ const App: React.FC = () => {
       if (storedUser) {
         try {
           const parsed = JSON.parse(storedUser);
+          // Explicitly construct to drop potential garbage properties/methods
           setUser({
-            ...parsed,
             id: safeString(parsed.id),
             email: safeString(parsed.email),
-            name: safeString(parsed.name),
-            role: parsed.role // strict type
+            name: safeString(parsed.name) || 'User',
+            role: parsed.role === 'admin' ? 'admin' : 'staff'
           });
         } catch (e) {
           localStorage.removeItem('fintrack_active_user');
@@ -142,7 +142,7 @@ const App: React.FC = () => {
     { id: 'transactions', label: 'Transactions', icon: ArrowRightLeft },
   ];
 
-  const userNameInitial = safeString(user?.name).charAt(0).toUpperCase() || '?';
+  const userNameInitial = safeString(user.name).charAt(0).toUpperCase() || '?';
 
   return (
     <div className="flex h-screen bg-[#F9FAFB] overflow-hidden text-gray-900 font-sans selection:bg-brand-100 selection:text-brand-900 relative">
@@ -197,8 +197,8 @@ const App: React.FC = () => {
               {userNameInitial}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-gray-900 truncate">{safeString(user?.name || 'User')}</p>
-              <p className="text-xs text-gray-500 truncate capitalize">{safeString(user?.role || 'admin')}</p>
+              <p className="text-sm font-semibold text-gray-900 truncate">{safeString(user.name)}</p>
+              <p className="text-xs text-gray-500 truncate capitalize">{safeString(user.role)}</p>
             </div>
             <button onClick={(e) => { e.stopPropagation(); handleLogout(); }} className="text-gray-400 hover:text-red-500 transition-colors p-1.5 hover:bg-red-50 rounded-md opacity-0 group-hover:opacity-100">
               <LogOut size={16} />
